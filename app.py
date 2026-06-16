@@ -27,6 +27,8 @@ import wave
 from pathlib import Path
 from typing import AsyncIterator, Awaitable, Callable
 
+import numpy as np
+
 import config
 from contracts import (
     Direction,
@@ -218,6 +220,22 @@ def _write_wav(path: Path, pcm: bytes, rate: int) -> None:
         w.writeframes(pcm)
 
 
+def _trim_trailing_silence(pcm: bytes, rms_thresh: float, win_ms: int = 50,
+                           rate: int = MODEL_OUTPUT_RATE, keep_ms: int = 200) -> bytes:
+    """Drop trailing near-silence (the model pads silence after the clause), keeping a short tail."""
+    a = np.frombuffer(pcm, dtype=np.int16)
+    if a.size == 0:
+        return pcm
+    win = max(1, win_ms * rate // 1000)
+    last_voiced = 0
+    for start in range(0, a.size, win):
+        seg = a[start:start + win].astype(np.float64)
+        if seg.size and np.sqrt(np.mean(seg * seg)) >= rms_thresh:
+            last_voiced = start + seg.size
+    end = min(a.size, last_voiced + keep_ms * rate // 1000)
+    return a[:end].tobytes()
+
+
 async def _once(fixture: Path, target: str) -> int:
     import fakes
     from translate_session import live_events
@@ -233,25 +251,63 @@ async def _once(fixture: Path, target: str) -> int:
     t_first: int | None = None
     t_last: int | None = None
     turn_complete = False
+    err: str | None = None
 
-    async for ev in live_events(cfg, source):
-        if ev.kind == "audio" and ev.audio is not None and ev.audio.pcm_s16le:
-            if t_first is None:
-                t_first = ev.t_ns
-            t_last = ev.t_ns
-            out_audio.extend(ev.audio.pcm_s16le)
-        elif ev.kind == "input_transcript" and ev.text:
-            in_txt.append(ev.text)
-        elif ev.kind == "output_transcript" and ev.text:
-            out_txt.append(ev.text)
-        elif ev.kind == "status" and ev.detail in ("turn_complete", "generation_complete"):
-            turn_complete = True
-        elif ev.kind == "error":
-            print(f"  ERROR: {ev.detail}", file=sys.stderr)
-            return 1
+    # NB: this Live-Translate model is a CONTINUOUS streamer - it sends NO turn_complete /
+    # generation_complete (verified 16 Jun). After the clause it just emits silence. So single-shot
+    # --once detects end-of-turn by SILENCE: once real output audio has arrived and then stays quiet
+    # for END_SILENCE_MS, the turn is done. wait_for is a final backstop.
+    END_SILENCE_MS = 1200
+    SILENCE_RMS = 180  # int16 RMS below this == silence (ambient floor measured ~16)
 
+    def _rms(pcm: bytes) -> float:
+        a = np.frombuffer(pcm, dtype=np.int16).astype(np.float64)
+        return float(np.sqrt(np.mean(a * a))) if a.size else 0.0
+
+    last_nonsilent_ns: int | None = None
+
+    async def consume() -> None:
+        nonlocal t_first, t_last, turn_complete, err, last_nonsilent_ns
+        gen = live_events(cfg, source)
+        try:
+            async for ev in gen:
+                if ev.kind == "audio" and ev.audio is not None and ev.audio.pcm_s16le:
+                    if t_first is None:
+                        t_first = ev.t_ns
+                    t_last = ev.t_ns
+                    out_audio.extend(ev.audio.pcm_s16le)
+                    if _rms(ev.audio.pcm_s16le) >= SILENCE_RMS:
+                        last_nonsilent_ns = ev.t_ns
+                    elif (last_nonsilent_ns is not None
+                          and ev.t_ns - last_nonsilent_ns > END_SILENCE_MS * 1_000_000):
+                        turn_complete = True  # silence-based end of turn
+                        break
+                elif ev.kind == "input_transcript" and ev.text:
+                    in_txt.append(ev.text)
+                elif ev.kind == "output_transcript" and ev.text:
+                    out_txt.append(ev.text)
+                elif ev.kind == "status" and ev.detail in ("turn_complete", "generation_complete"):
+                    turn_complete = True
+                    break
+                elif ev.kind == "error":
+                    err = ev.detail
+                    break
+        finally:
+            await gen.aclose()
+
+    try:
+        await asyncio.wait_for(consume(), timeout=35)
+    except asyncio.TimeoutError:
+        print("  (no end-of-turn within 35s - stopped on timeout)", file=sys.stderr)
+    if err is not None:
+        print(f"  ERROR: {err}", file=sys.stderr)
+        return 1
+
+    # Trim trailing silence from the saved clip (the model pads silence after the clause).
+    trimmed = _trim_trailing_silence(bytes(out_audio), SILENCE_RMS)
     out_path = ROOT / f"out_{target}.wav"
-    _write_wav(out_path, bytes(out_audio), MODEL_OUTPUT_RATE)
+    _write_wav(out_path, trimmed, MODEL_OUTPUT_RATE)
+    out_audio = bytearray(trimmed)
     print(f"  fixture    : {fixture.name}  (target={target}, {direction.value})")
     print(f"  heard      : {''.join(in_txt)!r}")
     print(f"  spoke      : {''.join(out_txt)!r}")

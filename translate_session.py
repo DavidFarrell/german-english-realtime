@@ -16,10 +16,16 @@ from __future__ import annotations
 
 import asyncio
 import time
+from pathlib import Path
 from typing import Any, AsyncIterator
 
+from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+
+# Load GEMINI_API_KEY from the repo .env so every live entrypoint (app --once/--run, latency
+# component mode, the hw tools) gets the key without each wiring it up. Idempotent.
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from contracts import (
     INPUT_QUEUE_MAX_CHUNKS,

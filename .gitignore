@@ -1,0 +1,75 @@
+# --- Secrets / credentials (NEVER commit) ---
+.env
+.env.*
+*.env
+secrets.*
+*api*key*
+*credentials*.json
+service-account*.json
+gcp-*.json
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+*.egg-info/
+*.egg
+.installed.cfg
+wheels/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.virtualenv/
+
+# Tooling caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+
+# --- Audio / video capture artefacts (this project records & streams media) ---
+*.wav
+*.mp3
+*.m4a
+*.aac
+*.flac
+*.ogg
+*.opus
+*.mp4
+*.mov
+*.webm
+*.mkv
+*.pcm
+*.raw
+recordings/
+captures/
+audio_out/
+tmp/
+
+# --- OS / editor ---
+.DS_Store
+._*
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
+
+# --- Notes / reference media exceptions ---
+# Keep the reference quickstart and notes; ignore any large mirrored demo media you drop in.
+demo_media/

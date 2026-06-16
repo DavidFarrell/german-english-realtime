@@ -1,4 +1,4 @@
-# Implementation plan - Python prototype (v2, post-GPT-5 review)
+# Implementation plan - Python prototype (v3, post web-research + AirPods design)
 
 **Goal:** a single-machine Python prototype that turns a DJI Mic 3 (USB-C, Stereo Mode =>
 TX1=left, TX2=right) into a two-way German<->English live translator on Gemini 3.5 Live
@@ -6,202 +6,216 @@ Translate, and **measures real latency** (German verb-final = stated worst case)
 Electron UI. Concept: [[concept-dji-mic3-two-way]]. API facts: [[gemini-live-3-5-translate]],
 [[thursdai-insights]].
 
-> This is v2. It folds in a GPT-5 adversarial review of v1 (and facts I verified locally).
-> The changelog at the bottom records what changed and why.
+> v3 history: v1 (my plan) -> GPT-5 adversarial review -> v2 -> web research into others'
+> real-world gotchas + David's AirPods design decision -> v3. Changelog at the bottom.
 
-## Verified facts (checked locally, 16 Jun 2026)
+## Verified facts (checked locally + against Google docs, 16 Jun 2026)
 
-- **The installed `google-genai` is 1.56.0 and has NO `TranslationConfig` and no
-  `translation_config` field on `LiveConnectConfig`.** The AI Studio starter
-  (`../live_translate_starter.py`) therefore **cannot even construct its CONFIG** in this env.
-  Latest on PyPI is **2.8.0**. => SDK upgrade (or raw-WebSocket fallback) is step one.
-- **`send_realtime_input` DOES exist** on the async live session even in 1.56.0 - so the
-  realtime-audio send path is `session.send_realtime_input(...)`, NOT the deprecated
-  `session.send(...)` the starter uses.
-- DJI Mic 3 Stereo Mode => TX1 left / TX2 right over USB-C (confirmed earlier from DJI docs).
+- **SDK fix is concrete: pin `google-genai>=2.8.0`.** The installed 1.56.0 had NO
+  `TranslationConfig` (so the AI Studio starter can't construct its config). I installed 2.8.0
+  in a clean venv and confirmed it HAS: `types.TranslationConfig` (fields
+  `target_language_code`, `echo_target_language`), and `LiveConnectConfig` fields
+  `translation_config`, `input_audio_transcription`, `output_audio_transcription`, plus
+  `types.AudioTranscriptionConfig`. **=> No raw-WebSocket fallback needed; the Python SDK
+  supports everything.** (Raw-WS demoted to contingency.)
+- **`send_realtime_input` is the real send API** (exists even in 1.56). The starter's
+  `session.send(...)` is deprecated.
+- **Per Google docs (authoritative):**
+  - model `gemini-3.5-live-translate-preview`; **API-key only - NOT on Vertex yet.**
+  - input **16-bit PCM, 16 kHz, mono, little-endian**; output **24 kHz mono PCM**; send in
+    **100 ms chunks**.
+  - `translationConfig`: `targetLanguageCode` (BCP-47, default `en`), `echoTargetLanguage`
+    (bool, default false - keep false: only emit when translation is actually needed).
+  - transcripts: enable `inputAudioTranscription` / `outputAudioTranscription`; read
+    `serverContent.inputTranscription.text` / `outputTranscription.text`; audio at
+    `serverContent.modelTurn.parts[].inlineData.data`.
+  - **translation is unidirectional per session** ("the model acts as an interpreter") =>
+    two-way needs **two sessions** (confirms the design).
+  - documented limits: **audio-only input** (no text); **voice replication inconsistent**;
+    **language detection struggles with heavy accents and similar languages**; **background
+    audio not fully filtered**; **all output carries a non-removable SynthID watermark**.
+  - **public preview**: no SLA / stable pricing / GA; expect the API to shift.
+- DJI Mic 3 Stereo Mode => TX1 left / TX2 right over USB-C (DJI docs).
 
-## Definition of done (prototype)
+## Output design (UPDATED - David's AirPods decision)
 
-1. Two people on the two DJI transmitters hold a DE<->EN conversation, each heard in their own
-   output device, near real time.
-2. **Measured latency** for DE->EN and EN->DE (component latency at minimum; physical
-   mouth-to-ear if the rig is feasible), with the verb-final hypothesis tested with numbers.
-3. The riskiest unknowns (SDK surface / preview model / transcripts; DJI channel split; two
-   concurrent sessions + quota) are proven, not assumed.
-4. No secrets in the repo; `.env` (gitignored) holds the key.
+**One AirPod per person.** This actually SIMPLIFIES the output side: the AirPods are a single
+**stereo Bluetooth output device**, and the two buds are physically separate (no shared
+band/cable). So:
 
-## Correct SDK surface (the bits v1 got wrong)
+- Route **session A output (German->English) -> LEFT channel -> David's left AirPod**.
+- Route **session B output (English->German) -> RIGHT channel -> sister-in-law's right AirPod**.
+- Each person wears one bud and hears only their own language. One output device, stereo,
+  L/R split in code. No need for two separate output devices after all.
 
-- **Config:** after upgrading, build `LiveConnectConfig(response_modalities=["AUDIO"],
-  translation_config=types.TranslationConfig(target_language_code="en"))`. If the upgraded
-  *python* SDK still lacks `TranslationConfig`, fall back to a **raw WebSocket** client setting
-  `generationConfig.translationConfig` (the REST/WS schema has it). Decide this in Slice 0.
-- **Send (realtime audio):** `await session.send_realtime_input(audio=types.Blob(data=pcm,
-  mime_type="audio/pcm;rate=16000"))`. Raw **16-bit little-endian PCM, 16 kHz mono**, in
-  **~100 ms chunks** (Google's recommendation), NOT one big blob and NOT faster than realtime.
-- **Receive:** iterate `session.receive()`; for each event handle **all** fields (do not
-  `continue` after audio):
-  - audio out: `response.server_content.model_turn.parts[].inline_data.data` (24 kHz PCM).
-  - text: `input_transcription` / `output_transcription` (must be enabled in config; treat as
-    **diagnostic only**, not the translation path).
-  - control: handle `go_away`, turn/session-resumption events.
-- **Model id:** normalise - try both `gemini-3.5-live-translate-preview` and the
-  `models/...`-prefixed form against `client.aio.live.connect()` after upgrade; keep whichever
-  the SDK accepts.
-- **Key:** standardise on `GEMINI_API_KEY` (note the SDK also reads `GOOGLE_API_KEY`; set only
-  one to avoid precedence confusion).
-- **Transcripts decision:** use the Live API's **built-in input/output transcription** config
-  for the prototype (diagnostic text). Do NOT spin up separate transcriber sessions (that's
-  what the consumer product does; unnecessary cost/complexity here).
+**But two Bluetooth-specific gotchas (baked into the plan):**
 
-## Architecture (hardened)
+1. **Keep the AirPods OUTPUT-ONLY (A2DP).** The microphones are the DJI transmitters. If macOS
+   selects an AirPod as the *input* device, it flips the AirPods into **HFP** mode -> the
+   output collapses to **mono + low quality** (both buds get the same muddy stream), killing
+   the L/R split. So: explicitly select the DJI as input, AirPods as output only, and never
+   let the app open the AirPod mic.
+2. **Bluetooth output latency (~150-300 ms, AAC) eats the <500 ms budget.** This directly
+   undercuts the headline latency. The latency harness MUST compare **wired output vs AirPods**
+   so we know the real end-to-end number David will experience. (Wired USB-C earbuds / a splitter
+   are the low-latency fallback if AirPods latency is unacceptable.)
+
+## Correct SDK surface (concrete, verified)
+
+```python
+# pip install "google-genai>=2.8.0"  (verified to expose the types below)
+from google import genai
+from google.genai import types
+
+client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])  # API key only; not Vertex yet
+MODEL = "gemini-3.5-live-translate-preview"                   # confirm prefix vs models/ at runtime
+
+def cfg(target):  # one per direction
+    return types.LiveConnectConfig(
+        response_modalities=["AUDIO"],
+        translation_config=types.TranslationConfig(
+            target_language_code=target, echo_target_language=False),
+        input_audio_transcription=types.AudioTranscriptionConfig(),
+        output_audio_transcription=types.AudioTranscriptionConfig(),
+    )
+
+# send: 100ms, 16k mono LE PCM
+await session.send_realtime_input(audio=types.Blob(data=pcm, mime_type="audio/pcm;rate=16000"))
+
+# receive: handle ALL fields per event (don't `continue` after audio)
+async for r in session.receive():
+    sc = r.server_content
+    if sc and sc.model_turn:
+        for p in sc.model_turn.parts:
+            if p.inline_data: out_audio(p.inline_data.data)   # 24k PCM
+    if sc and sc.input_transcription:  log_in(sc.input_transcription.text)
+    if sc and sc.output_transcription: log_out(sc.output_transcription.text)
+    # also handle go_away / session resumption
+```
+
+## Architecture (hardened; unchanged from v2 except output is now one stereo device)
 
 ```
-DJI receiver (USB, 2ch @48k)  ──InputStream callback (PortAudio thread)──┐
-  callback does NOTHING heavy: just copies the (frames,2) int16 block    │
-  into two per-channel bounded ring buffers (drop-oldest + overflow ctr) │
-        ┌──────────────────────────────────────────────────────────────┘
-        ▼  (worker coroutine per channel, woken via loop.call_soon_threadsafe)
-  streaming resampler 48k→16k  (PERSISTENT filter state across blocks; soxr stream
-        ▼                       or scipy with zi) → 100ms int16 mono chunks
-  session_A.send_realtime_input (target=en)        session_B.send_realtime_input (target=de)
-        ▼ receive: model_turn audio (24k) + transcription
-  per-session output jitter buffer  → OutputStream CALLBACK (zero-fill on underrun,
-        ▼                              resample 24k→device-rate if device won't open at 24k)
-  device 1 (English listener)                      device 2 (German listener)
+DJI receiver (USB, 2ch @48k) ──InputStream callback (PortAudio thread; copies only)──┐
+   ch0 (L=TX1=German)  → bounded ring buffer A → streaming resample 48k→16k → 100ms chunks → session_A(target=en)
+   ch1 (R=TX2=English) → bounded ring buffer B → streaming resample 48k→16k → 100ms chunks → session_B(target=de)
+   each session.receive → 24k audio + transcripts
+   session_A audio → jitter buffer → LEFT  of the AirPods stereo OutputStream  (David)
+   session_B audio → jitter buffer → RIGHT of the AirPods stereo OutputStream  (sister-in-law)
 ```
 
-- asyncio `TaskGroup`. PortAudio callbacks run on their own threads and must never block,
-  allocate heavily, or resample - they only move bytes into/out of bounded buffers. Bridge to
-  asyncio via `loop.call_soon_threadsafe`.
-- **Backpressure/drop policy explicit:** bounded ring buffers; when input is late, drop oldest
-  and bump an overflow counter (logged). Output uses a jitter buffer + zero-fill on underrun;
-  log queue depth.
-- **Resampling is streaming** (filter state preserved across callbacks) - not independent
-  per-buffer resample (which clicks at boundaries).
-- **Output rate:** many devices won't open at 24 kHz; query device preferred rate and resample
-  the model output to it. Independent output devices have independent clocks => no
-  sample-perfect sync (fine: two different listeners).
-- **Resilience:** handle dropped WS / `go_away` / session renewal with reconnect-and-resume on
-  each session.
+- asyncio `TaskGroup`; PortAudio callbacks never block/allocate/resample (copy bytes only),
+  bridge via `loop.call_soon_threadsafe`.
+- bounded ring buffers + drop-oldest + overflow counters; **streaming** resampler (persistent
+  filter state via `soxr` stream or `scipy` `zi`); output callback with jitter buffer +
+  zero-fill on underrun + queue-depth logging; resample 24k->device rate if needed.
+- reconnect/`go_away`/session-resumption per session.
 
 ## Tech choices
+- **`sounddevice`** (PortAudio): enumerate by name+host API (persist those, not indices);
+  one stereo output stream for the AirPods; explicit DJI input selection.
+- **`soxr`** streaming resampler (or scipy with retained `zi`).
+- **`google-genai>=2.8.0`** pinned (verified). Raw-WS = contingency only.
+- secrets: `python-dotenv` + gitignored `.env` (`GEMINI_API_KEY`; set only this, not also
+  `GOOGLE_API_KEY`). `uv` + `pyproject.toml`.
 
-- **Audio I/O: `sounddevice`** (PortAudio) for device enumeration-by-name, numpy buffers, and
-  output callbacks. Persist device **names + host API**, not raw indices (indices shift).
-- **Resampling: `soxr`** in streaming mode (preferred) or `scipy.signal` with retained `zi`.
-- **SDK: `google-genai` upgraded** to a `TranslationConfig`-capable version (verify; pin it).
-  Raw-WS fallback only if needed.
-- **Secrets:** `python-dotenv` + gitignored `.env`; commit `.env.example`.
-- **Env:** `uv` + `pyproject.toml` with a pinned google-genai.
+## Web research findings (others building on this API)
+- **Availability:** API-key only; **Vertex AI not supported yet** (dev-forum request; Google
+  redirected to sales). Plan around AI Studio / Gemini API keys.
+- **Transport SDKs** for scaling/real apps: LiveKit, Pipecat, Agora, Fishjam, Vision Agents -
+  "your code becomes session management + UX, not signal processing." Not needed for a
+  single-machine prototype, but the route for the eventual product (Thor used LiveKit).
+- **SynthID watermark** is embedded in ALL output audio and non-removable - note for any
+  recordings we keep.
+- **Accents / similar languages:** docs explicitly flag detection struggles with heavy accents
+  and similar languages, and that background audio isn't fully filtered. David's sister-in-law
+  is a real German speaker with a real accent, and two lavs share a room -> **validate against
+  her actual voice early**, not just clean canned clips.
+- **Ephemeral tokens (future Electron client):** must use **v1alpha** endpoint and put
+  `translationConfig` in the token-creation constraints server-side.
+- **Preview maturity:** no SLA, pricing not final, API surface will shift; Grab piloted at
+  ~10M calls/month, but Google says validate latency/quality against your own conditions.
+- **Operational limits (session length caps, concurrency/quota, pricing) are NOT publicly
+  documented** - so we must measure them ourselves (two concurrent sessions + a multi-minute
+  run are explicit acceptance gates below).
 
-## File layout
+## Build slices
 
-```
-app.py                  # CLI + asyncio orchestration
-src/config.py           # device names+hostapi, channel↔lang↔output map, rates, model id
-src/audio_io.py         # enumerate; input callback+ring buffers; streaming resamplers; output sinks
-src/translate_session.py# one Live session: connect, send_realtime_input, receive parse, reconnect
-src/latency.py          # latency harness (paced canned clips; optional loopback-rig analysis)
-clips/                  # canned DE/EN sentences (verb-final ones included); gitignored if large
-.env.example
-pyproject.toml
-```
+**Slice 0 - SDK / API schema spike (NO hardware).** Fresh venv; `pip install "google-genai>=2.8.0"`;
+connect ONE session to the preview model with translation + transcription config; feed a canned
+**German wav** as paced 100 ms 16k-mono chunks via `send_realtime_input`; parse
+`server_content.model_turn.parts[].inline_data.data` + transcripts; save `out_en.wav`.
+*Acceptance:* intelligible English out + transcripts. (SDK risk already largely retired by the
+2.8.0 check; this proves the live round-trip + that David's key can reach the preview model.)
 
-## Build slices (re-ordered per GPT-5)
+**Slice 1 - Audio hardware spike (NO model).** `--list-devices` (names+host API). Confirm DJI is
+true **2-ch 48 kHz** in Audio MIDI Setup; record both channels; verify TX1=ch0=L / TX2=ch1=R.
+Open the **AirPods as a stereo output** and prove independent L vs R tones reach the two buds.
+Explicitly confirm macOS is NOT using an AirPod as input (no HFP collapse). *Acceptance:*
+2-ch capture with known mapping + verified independent L/R playout on the two AirPods.
 
-**Slice 0 - SDK / API schema spike (NO hardware).**
-- Fresh venv; `pip install -U google-genai`; assert `types.TranslationConfig` exists and
-  `translation_config` is a `LiveConnectConfig` field. If not, switch to the raw-WS fallback
-  here and prove it.
-- Connect ONE session to the preview model; enable input/output transcription; feed a canned
-  **German wav** as **paced 100 ms 16k-mono chunks** via `send_realtime_input`; parse
-  `server_content.model_turn.parts[].inline_data.data`; save `out_en.wav`; print transcripts.
-- **Acceptance:** out_en.wav is intelligible English of the German input. Proves SDK version,
-  preview model id, config schema, send API, receive event shape, audio formats - hardware-free.
+**Slice 2 - One-direction live path.** Left channel (German) → resample → session(en) → LEFT
+AirPod. *Acceptance:* speak German into TX1, hear English in the left bud, near real time.
 
-**Slice 1 - Audio hardware spike (NO model).**
-- `--list-devices` (names + host API). Plug in DJI; confirm in **Audio MIDI Setup** it's a
-  true **2-ch 48 kHz** input (not safety-track/mono/mixed). Record 5 s of both channels to a
-  stereo wav; verify by ear/scope that **TX1=ch0=left, TX2=ch1=right**. Open each intended
-  **output** device (prefer **wired USB DACs / an interface**, not two Bluetooth earbuds).
-- **Acceptance:** confirmed 2-ch capture with known channel→speaker mapping, and two output
-  devices that open and play a test tone.
+**Slice 3 - Latency harness for ONE direction, WIRED vs AIRPODS.** Paced canned clips (100 ms,
+real-time): log send-start / first-output-byte / last-output-byte = component latency (label:
+excludes capture + playout). Then a **physical loopback rig**: source clip through an earbud
+coupled to a DJI TX; record translated output + source on one clock; forced-align; measure
+**"disambiguating word spoken -> target audible"** (the meaningful metric for verb-final
+German). **Run it twice: wired output and AirPods**, to quantify the Bluetooth latency tax.
+*Acceptance:* DE->EN vs EN->DE latency table, wired vs AirPods, methodology limits stated.
 
-**Slice 2 - One-direction live path (wired output).**
-- Left channel (German) → streaming resample → session(en) → jitter buffer → wired output.
-- **Acceptance:** speak German into TX1, hear English in near real time. Proves the full
-  real-time loop + thread↔asyncio bridge + streaming resampler + output callback.
+**Slice 4 - Two concurrent sessions, then full two-way.** First prove **two canned real-time
+streams concurrently** (quota + WS stability + session-length). Then wire the real DJI right
+channel → session(de) → RIGHT AirPod. *Acceptance:* real two-way DE<->EN over a multi-minute
+session, each in their own bud, no quota/WS failures; **test with the sister-in-law's real
+German accent**, not just canned clips.
 
-**Slice 3 - Latency harness for ONE direction (before concurrency).**
-- Paced canned clips (100 ms, real-time): log send-start, first-output-byte, last-output-byte
-  => component latency (label clearly: EXCLUDES mic-capture + playout hardware). Then, if
-  feasible, a **physical loopback rig**: play source clip through an earbud coupled to a DJI
-  TX, record the translated listener output and the source on one clock, forced-align, and
-  measure **"disambiguating word spoken" -> "target equivalent audible"** (the meaningful
-  metric for verb-final German), not first syllable.
-- **Acceptance:** DE->EN vs EN->DE latency table with the methodology's limits stated.
-
-**Slice 4 - Two concurrent sessions, then full two-way.**
-- First prove **two canned real-time streams concurrently** (quota + WS stability). Then wire
-  the real DJI right channel → session(de) → second output. Channel↔lang↔output in config/CLI;
-  single-output fallback (A→L, B→R of one device) with a warning.
-- **Acceptance:** real two-way DE<->EN exchange, each heard in their own device; no quota/WS
-  failures over a multi-minute session.
-
-**Slice 5 - Robustness polish.**
-- Per-channel energy gate / simple VAD (cut mic bleed + idle token burn); live transcript
-  print; reconnect on `go_away`/WS drop with session resumption; config persistence; graceful
-  Ctrl-C closing streams + sessions.
+**Slice 5 - Robustness polish.** Per-channel energy gate / VAD (cut mic bleed + idle token
+burn); live transcript print; reconnect on `go_away`/WS drop with resumption; config persist;
+graceful shutdown.
 
 ## Risks / unknowns (status)
-
-1. **SDK surface (HIGH):** installed 1.56.0 lacks `TranslationConfig`. Mitigation: upgrade +
-   verify, else raw-WS fallback. RETIRED by Slice 0.
-2. **Preview model gating (HIGH):** is `gemini-3.5-live-translate-preview` reachable on
-   David's key? RETIRED by Slice 0. (Needs a key with access - the one ask of David.)
-3. **DJI channel reality on macOS (MED):** true 2-ch 48k? channel order? RETIRED by Slice 1.
-4. **Two concurrent sessions + quota (MED):** proven early in Slice 4 with canned streams.
-5. **Latency definition (MED):** component proxy + optional physical rig; confounds (VAD
-   edges, BT codec latency, underruns, resampler group delay, warm vs cold connection, model
-   leading silence, semantic delay on long German clauses) documented in results.
-6. **Realtime audio plumbing (MED):** bounded buffers, drop policy, streaming resampler,
-   output jitter buffer, no work in callbacks - designed in above.
-7. **Echo/feedback (LOW):** mandate headphones/earbuds; out of scope to cancel.
-8. **macOS perms/devices:** terminal mic permission; persist device names+host API; avoid BT
-   HFP mic downgrade; prefer wired DACs for measurement.
+1. SDK surface (HIGH) - RETIRED: 2.8.0 verified to have everything; pin it.
+2. Preview model gating on David's key (HIGH) - Slice 0. Needs a key with preview access.
+3. **Bluetooth latency tax (HIGH, new)** - AirPods may blow the <500 ms feel; Slice 3 measures
+   wired vs AirPods; wired earbuds are the fallback.
+4. **AirPods forced into HFP/mono (MED, new)** - keep output-only, never open AirPod mic; Slice 1.
+5. DJI channel reality on macOS (MED) - Slice 1.
+6. Two concurrent sessions + quota + session-length (MED) - Slice 4 (undocumented; we measure).
+7. Accent/bleed degrading detection (MED) - validate with the real speaker early (Slice 4).
+8. Realtime plumbing (MED) - bounded buffers, streaming resampler, jitter buffers (designed in).
+9. SynthID watermark on recordings (LOW) - note it; fine for a prototype.
 
 ## Not in the prototype
-Electron/GUI; voice cloning (model doesn't); LiveKit transport (but read Thor's "Gemini Live
-Translate" LiveKit example for multi-session orchestration shape).
+Electron/GUI; voice cloning (model can't); LiveKit/Pipecat transport (single machine) - but
+that's the route for the product, and ephemeral-token + v1alpha is the client-auth path.
 
 ## First action
-Slice 0. Need from David: a `GEMINI_API_KEY` with access to
-`gemini-3.5-live-translate-preview`. Everything in Slice 0/1 is otherwise buildable now.
+Slice 0, on a fresh venv with `google-genai>=2.8.0`. Only blocker: a `GEMINI_API_KEY` with
+access to `gemini-3.5-live-translate-preview` (API-key, not Vertex).
 
 ---
 
-## Changelog: v1 -> v2 (what the GPT-5 review changed)
+## Changelog
+**v1 -> v2 (GPT-5 review):** corrected the deprecated `session.send`/`response.data` to
+`send_realtime_input` + `server_content.model_turn.parts`; 100 ms real-time-paced chunks;
+hardened audio plumbing (bounded buffers, streaming resampler, jitter buffers); real
+mouth-to-ear latency rig + verb-final metric; re-ordered slices (SDK spike vs hardware spike
+split; one-direction latency before two-way; two-session quota proven with canned streams);
+macOS device/clock specifics. Flagged installed `google-genai` 1.56.0 lacks `TranslationConfig`.
 
-1. **SDK reality check up front.** v1 assumed the starter's `translation_config` + `session.send`
-   + `response.data/.text` worked. Verified locally: installed `google-genai` 1.56.0 has no
-   `TranslationConfig`; `send_realtime_input` is the real send API. v2 makes "upgrade/verify SDK
-   or raw-WS fallback" the first step and corrects the send/receive surface
-   (`send_realtime_input` + `server_content.model_turn.parts` + separate transcription fields).
-2. **100 ms real-time-paced chunks** for both live audio and the latency harness (never send
-   faster than realtime).
-3. **Architecture hardened:** bounded ring buffers + explicit drop policy + overflow counters;
-   streaming resampler with persistent filter state; output via callback with jitter buffer +
-   zero-fill; resample model 24k output to device rate; no heavy work in PortAudio callbacks;
-   reconnect/`go_away` handling.
-4. **Latency methodology fixed:** the send->first-output metric is labelled component-only;
-   added a physical loopback-rig method and the "disambiguating word -> target audible" metric
-   for verb-final German; confounds listed.
-5. **Slices re-ordered:** Slice 0 split into (0) SDK/API spike and (1) audio-hardware spike;
-   one-direction latency harness moved BEFORE two-way concurrency; two-session quota/stability
-   proven with canned streams before full hardware.
-6. **macOS specifics:** persist device names + host API (not indices); prefer wired USB DACs
-   over two Bluetooth earbuds (HFP downgrade, latency, clock drift); confirm DJI true 2ch 48k
-   in Audio MIDI Setup; independent output clocks => no sample-perfect sync.
-7. **Transcript ownership decided:** use the Live API's built-in input/output transcription
-   (diagnostic), not separate transcriber sessions, for the prototype.
+**v2 -> v3 (web research + AirPods):**
+- **SDK fix made concrete + verified:** `google-genai>=2.8.0` exposes `TranslationConfig`
+  (`target_language_code`, `echo_target_language`) + `input/output_audio_transcription` +
+  `AudioTranscriptionConfig`. Raw-WS fallback demoted to contingency; added a concrete code
+  block with the real field names.
+- **Output redesigned for AirPods (David's call):** one stereo BT device, English->left bud /
+  German->right bud, one per person. Simpler than two devices. Added the two BT gotchas:
+  keep A2DP output-only (don't trigger HFP mono collapse), and the ~150-300 ms BT latency tax
+  -> Slice 3 now measures wired vs AirPods.
+- **Web research folded in:** API-key only (no Vertex yet); transport-SDK options for scaling;
+  non-removable SynthID watermark; documented limits (audio-only, inconsistent voice,
+  accent/similar-language detection issues, imperfect background filtering); ephemeral
+  tokens/v1alpha for the future client; preview = shifting API, undocumented session/quota
+  limits we must measure ourselves; validate against the real German speaker's accent early.

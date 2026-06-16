@@ -78,3 +78,13 @@ Concept is sound and well-matched to the tech. Build the Python core-loop protot
 prove latency + the DJI channel split; the one real design decision to make up front is
 **how the two translated outputs reach two people** (two output devices vs sharing one headset
 vs single-listener monitoring).
+
+## Output decision (David, 16 Jun): one AirPod per person
+Resolved the output wrinkle: use **AirPods, one bud per person** (the buds are physically
+separate, no band/cable). The AirPods are ONE stereo Bluetooth output device; route
+English->left bud (David), German->right bud (sister-in-law). Simpler than two devices.
+Two Bluetooth gotchas now baked into the plan: (1) keep AirPods **output-only / A2DP** - if
+macOS grabs an AirPod mic it flips to HFP and collapses output to mono+low-quality (the DJI is
+the mic); (2) Bluetooth adds **~150-300 ms** output latency that eats the <500 ms budget, so
+the latency harness measures **wired vs AirPods** (wired earbuds are the fallback if BT lag is
+too much). Full detail in [[plan-python-prototype]].

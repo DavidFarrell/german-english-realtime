@@ -1,4 +1,4 @@
-# Implementation plan - Python prototype (v4, + parallel/ultracode build strategy)
+# Implementation plan - Python prototype (v5, ultracode strategy hardened by GPT-5)
 
 **Goal:** a single-machine Python prototype that turns a DJI Mic 3 (USB-C, Stereo Mode =>
 TX1=left, TX2=right) into a two-way German<->English live translator on Gemini 3.5 Live
@@ -120,7 +120,8 @@ DJI receiver (USB, 2ch @48k) ──InputStream callback (PortAudio thread; copie
 - **`sounddevice`** (PortAudio): enumerate by name+host API (persist those, not indices);
   one stereo output stream for the AirPods; explicit DJI input selection.
 - **`soxr`** streaming resampler (or scipy with retained `zi`).
-- **`google-genai>=2.8.0`** pinned (verified). Raw-WS = contingency only.
+- **`google-genai==2.8.0`** pinned EXACTLY (verified working; a loose `>=` lets a fresh agent
+  pull a future breaking preview SDK). Raw-WS = contingency only.
 - secrets: `python-dotenv` + gitignored `.env` (`GEMINI_API_KEY`; set only this, not also
   `GOOGLE_API_KEY`). `uv` + `pyproject.toml`.
 
@@ -205,80 +206,156 @@ access to `gemini-3.5-live-translate-preview` (API-key, not Vertex).
 ## Building with ultracode / parallel subagents
 
 This section is for the fresh Claude Code instance that will implement this with the dynamic
-multi-agent workflow approach. The honest summary: **the code is very parallelizable, but the
-proof is not** - validation is hardware- and human-gated and stays sequential.
+multi-agent workflow approach. The honest summary: **the code is parallelizable AFTER the
+shared realtime contracts are frozen, but the proof is not** - validation is hardware- and
+human-gated and stays sequential. (This section was itself adversarially reviewed by GPT-5;
+the corrections below are baked in.)
 
-### The key enabler: contracts are already known, so fan out immediately
+### The real risk is NOT git conflicts - it's parallel agents inventing incompatible realtime
+### contracts. So Phase 1 freezes contracts in CODE, not prose.
 
-Normally you'd have to run a sequential spike before you know the API shape. Here the SDK
-surface is **already verified** (`google-genai>=2.8.0`: `send_realtime_input`,
-`server_content.model_turn.parts[].inline_data`, `TranslationConfig`, transcription configs;
-16k-in/24k-out/100 ms - see "Correct SDK surface"). So you can write a **skeleton commit that
-fixes the module interfaces first**, then fan out implementation against those frozen
-contracts. Contract-first is what makes the parallelism safe (agents don't diverge).
+The SDK surface is verified (see "Correct SDK surface"), but A and B are **NOT "fully
+independent"** - they share hidden contracts (chunk size, timestamp meaning, queue/drop policy,
+output routing, shutdown, and whether boundaries are `bytes` vs `np.ndarray` vs async iterators
+vs queues). Freeze all of that in a **`contracts.py` that no fan-out agent may edit**:
 
-### Dependency graph (what's parallel vs sequential vs human-only)
+```python
+# contracts.py  — frozen in Phase 1; fan-out agents import, never edit.
+from dataclasses import dataclass
+from enum import Enum
+from typing import AsyncIterator, Literal, Protocol
+
+INPUT_RATE = 16_000
+INPUT_FRAMES = 1_600          # exactly 100 ms @16k mono  -> chunk = 3200 bytes s16le
+MODEL_OUTPUT_RATE = 24_000
+PCM_FORMAT = "s16le"          # mono, little-endian, 16-bit
+
+# Backpressure (numeric, so every agent makes the SAME choice):
+INPUT_QUEUE_MAX_CHUNKS = 10           # ~1 s; drop-OLDEST on overflow, bump a counter
+OUTPUT_JITTER_TARGET_MS = 120
+OUTPUT_JITTER_MAX_MS = 400            # beyond this, drop-oldest; zero-fill on underrun
+
+class Direction(Enum):  DE_TO_EN = "de_to_en"; EN_TO_DE = "en_to_de"
+class OutputChannel(Enum):  LEFT = "left"; RIGHT = "right"
+
+@dataclass(frozen=True)
+class InputAudioChunk:
+    pcm_s16le: bytes          # mono 16k, exactly INPUT_FRAMES
+    seq: int
+    source: Literal["left", "right", "fixture"]
+    t_capture_ns: int | None
+    source_frame0: int | None
+
+@dataclass(frozen=True)
+class OutputAudioChunk:
+    pcm_s16le: bytes          # mono 24k, variable length
+    direction: Direction
+    seq: int
+    t_received_ns: int
+
+@dataclass(frozen=True)
+class SessionEvent:           # the ONE event type the session emits
+    direction: Direction
+    kind: Literal["audio", "input_transcript", "output_transcript", "status", "error"]
+    t_ns: int
+    audio: "OutputAudioChunk | None" = None
+    text: str | None = None
+    detail: str | None = None  # status/error payload (covers go_away / reconnect)
+
+async def live_events(direction: Direction,
+                      source: AsyncIterator[InputAudioChunk],
+                      config: "LiveSessionConfig") -> AsyncIterator[SessionEvent]: ...
+
+class AudioRuntime(Protocol):
+    def input_source(self, source: Literal["left","right"]) -> AsyncIterator[InputAudioChunk]: ...
+    def enqueue_output(self, channel: OutputChannel, audio: OutputAudioChunk) -> bool: ...
+```
+
+**Event-loop / lifecycle ownership (also frozen in Phase 1):** `app.py` owns `asyncio.run`,
+the `TaskGroup`, signal handling, routing (Direction->OutputChannel), and shutdown ordering.
+**No worker module creates or closes the event loop.** PortAudio callbacks NEVER call async
+APIs directly - they write into a bounded thread-safe bridge; the async side turns that into
+`InputAudioChunk`. Because `SessionEvent` already carries `status`/`error`, reconnect/go_away
+is part of the contract from day one (not "polish") - the concurrency verifier depends on it.
+
+### Dependency graph (corrected per GPT-5)
 
 ```
-[Phase 1: SKELETON]  one agent, BARRIER
-   define interfaces + dataclasses (config), module APIs, the in-memory PCM contract
-   (bytes, 16k mono LE in / 24k mono LE out), and a fakeable boundary for the Live session
+[Phase 1: SKELETON]  one agent, HARD BARRIER
+   contracts.py (above) + LiveSessionConfig + dependency pins (google-genai==2.8.0, exact) +
+   CLI skeleton & --list-devices in app.py + module stubs + a FAKE AudioRuntime and a FAKE
+   live_events (so end-to-end can run with no API + no hardware).
         │
         ▼
-[Phase 2: PARALLEL IMPLEMENT]  fan out, worktree-isolated, ~4 independent agents
-   A) translate_session.py  - Live API wrapper; testable vs the API with canned wav, no audio HW
-   B) audio_io.py           - device enum, input callback+ring buffers, streaming resampler,
-                              output jitter buffer; testable with synthetic/loopback audio, no API
-   C) latency.py            - paced-clip harness + forced-alignment analysis; against the contracts
-   D) fixtures/scaffolding  - canned DE/EN clips (incl. verb-final sentences), .env.example,
-                              pyproject pin, --list-devices, CLI skeleton in app.py
-        │   (A and B are the two big ones and are fully independent - different files, different
-        │    test rigs: A needs a key but no hardware; B needs neither)
+[Phase 2: PARALLEL IMPLEMENT]  fan out, worktree-isolated, by SEAM (not "one file")
+   A) translate_session.py (+tests)  - real live_events(); API-key, no hardware
+   B) audio/ package (+tests)        - capture, bridge, streaming resample, chunking, device
+                                        probe, output resample, stereo L/R mix, jitter buffer.
+                                        (Too big for one file -> a package. Needs neither API
+                                        nor hardware: test with synthetic audio + the fakes.)
+   C) latency.py (+deterministic fixtures) - paced-clip harness + analysis, against contracts
         ▼
-[Phase 3: INTEGRATE + ADVERSARIAL VERIFY]  one integrator, then a verify panel
-   integrate app.py wiring (join/barrier); then parallel verifiers, each a distinct lens:
-     - SDK-contract verifier: does send/receive match the LIVE docs TODAY (preview = shifting)?
-     - audio-correctness verifier: streaming resampler keeps filter state? buffers bounded +
-       drop policy? output zero-fills on underrun? no work in PortAudio callbacks?
-     - concurrency verifier: two sessions, backpressure, go_away/reconnect, no deadlock
-        │
+[Phase 3: INTEGRATE + 5-LENS ADVERSARIAL VERIFY]  integrator, then verify panel
+   integrator wires app.py against contracts.py; then parallel verifiers:
+     1 SDK-contract: send/receive match LIVE docs TODAY (preview shifts)
+     2 audio-correctness: resampler keeps filter state; buffers bounded + drop policy honoured;
+       output zero-fills on underrun; nothing heavy in PortAudio callbacks
+     3 concurrency: two sessions, backpressure numbers, go_away/reconnect, clean shutdown, no deadlock
+     4 fake end-to-end integration: fake-source -> fake-session -> fake-output runs with NO API,
+       NO hardware (proves the modules actually compose)
+     5 latency-methodology: is "disambiguating word -> target audible" actually measurable given
+       variable translation wording, possibly-missing word timestamps, cross-language alignment?
         ▼
-[Phase 4: HARDWARE + HUMAN GATES]  *** NOT agent work - sequential checkpoints for David ***
-   Slice 1 (real DJI 2ch + AirPods A2DP/no-HFP), Slice 3 (real latency rig, wired vs AirPods),
-   Slice 4 (real two-way + sister-in-law's German accent). Agents PREPARE these (harness, runbook,
-   logging); a human RUNS them on the physical machine.
+[GATE T1: API-key-gated Live tests]  agent-runnable (needs key, NO hardware)
+   single-session canned-wav round-trip; TWO concurrent canned sessions (quota/stability/session-length).
+        ▼
+[GATE T2: HARDWARE + HUMAN]  *** NOT agent work - sequential, David runs on the machine ***
+   real DJI 2ch + AirPods (A2DP/no-HFP); latency rig wired-vs-AirPods; real two-way with the
+   sister-in-law's German accent. Agents PREPARE harness + runbook + logging; a human RUNS it.
 ```
 
-### Concrete fan-out for Phase 2 (low conflict by construction)
-- Each agent owns **one file** -> use **worktree isolation** so each can run its own checks
-  without stepping on the others, then merge. (app.py is the only shared file; it belongs to
-  the Phase-3 integrator, not Phase 2.)
-- Give each agent: the frozen interface from Phase 1, the relevant section of this plan, and a
-  self-contained acceptance test it must pass (A: canned-wav round-trip; B: synthetic-audio
-  resample+route with assertions on rate/channels/buffer bounds; C: deterministic timestamp
-  math on a fake stream).
+### Seams (revised - one-file-per-agent was too rigid)
+- Skeleton owns `contracts.py`, dependency pins, CLI skeleton, stubs, and the FAKES.
+- A owns `translate_session.py` + its tests. B owns the `audio/` package + its tests. C owns
+  `latency.py` + deterministic fixtures. D (docs/runbooks/example clips) may NOT touch `app.py`.
+- `app.py` belongs to the Phase-3 integrator only. Worktree isolation per agent; merge at integrate.
 
-### What ultracode buys here, and what it does NOT
-- **Buys:** A and B (the bulk of the code) built concurrently; a real adversarial verify pass
-  on the two genuinely risky areas (the preview SDK surface, and the realtime audio plumbing)
-  using multiple lenses instead of one generate-and-hope; research/fixtures in parallel.
-- **Does NOT buy:** any shortcut through the hardware/human gates. Mic capture, AirPods
-  behaviour, real latency, and accent robustness are physical and must be measured by David on
-  the device. Don't let a workflow "declare success" on those - they're checkpoints, not tasks.
-- **Caution:** don't over-fan-out the trivial parts (config/CLI) - the win is concentrating
-  agent effort on (1) the audio plumbing correctness and (2) verifying the preview API against
-  live docs, because those are where this breaks. Spend the parallel budget on verification,
-  not on splitting a 40-line config file four ways.
+### What ultracode buys / does NOT
+- **Buys:** A and B (the bulk) built concurrently once contracts are frozen; a real 5-lens
+  adversarial verify on the genuinely risky areas (preview SDK surface, audio plumbing,
+  composition, latency methodology); fakes let the whole thing be proven with no API/hardware.
+- **Does NOT buy:** any shortcut through GATE T2. Mic capture, AirPods behaviour, real latency,
+  accent robustness are physical - measured by David. A workflow must NOT "declare success" there.
+- **Caution:** spend the parallel budget on audio-plumbing correctness + verifying the preview
+  API against live docs - NOT on splitting trivial files. Pin `google-genai==2.8.0` exactly (a
+  loose `>=` lets a fresh agent pull a future breaking preview SDK).
 
-### Suggested workflow phases (maps to the graph)
-1. **Skeleton** (1 agent, barrier) -> 2. **Implement** (parallel, worktree, ~4 agents) ->
-   3. **Integrate + verify** (1 integrator + a 3-lens verify panel) -> stop and hand the
-   hardware runbook to David for the Phase-4 gates. Re-enter a small workflow afterwards for
-   Slice 5 polish if wanted.
+### Hardware/human runbook must check (so the human gate is reproducible)
+macOS mic permission for the terminal; **Mono Audio OFF** and **audio balance centred** (else
+the L/R split dies); **AirPods automatic-switching + AirPod-mic input DISABLED** (keep A2DP);
+safe test volume; network conditions; **does translated audio leak back into the DJI mics**
+(feedback) - use earbuds, check; **privacy/consent** for recording bilingual audio + transcripts.
+
+### Cross-channel VAD (Slice 5)
+Per-channel energy gating is not enough - two lavs in one room bleed. Use **cross-channel
+dominance gating** (only stream the louder channel) so bleed doesn't wake the wrong direction.
 
 ---
 
 ## Changelog
+**v4 -> v5 (GPT-5 review of the parallel-build strategy):** the Phase-1 barrier was too weak
+(prose, not code). Added a concrete frozen `contracts.py` (PCM constants incl. 1600-frame /
+100 ms chunk, numeric backpressure, `Direction`/`OutputChannel` enums, `InputAudioChunk` /
+`OutputAudioChunk` / `SessionEvent` dataclasses, `live_events()` + `AudioRuntime` Protocol) and
+froze event-loop/lifecycle ownership in `app.py`. Reclassified: "A and B fully independent" ->
+"parallelizable after contracts frozen"; `audio_io.py` -> an `audio/` package (too big for one
+agent); dep pins + CLI skeleton moved into Phase 1; reconnect/go_away is contract not polish
+(via `SessionEvent` status/error); split API-key-gated Live tests (agent-runnable, gate T1)
+from hardware/human gates (T2). Verify panel 3 -> 5 lenses (added fake end-to-end integration
++ latency-methodology). Pinned `google-genai==2.8.0` exactly. Added cross-channel dominance VAD
+and an expanded human runbook (Mono Audio off, balance centred, AirPods auto-switch/mic off,
+feedback check, privacy/consent).
+
 **v1 -> v2 (GPT-5 review):** corrected the deprecated `session.send`/`response.data` to
 `send_realtime_input` + `server_content.model_turn.parts`; 100 ms real-time-paced chunks;
 hardened audio plumbing (bounded buffers, streaming resampler, jitter buffers); real

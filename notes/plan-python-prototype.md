@@ -41,6 +41,15 @@ Electron UI. Concept: [[concept-dji-mic3-two-way]]. API facts: [[gemini-live-3-5
     audio not fully filtered**; **all output carries a non-removable SynthID watermark**.
   - **public preview**: no SLA / stable pricing / GA; expect the API to shift.
 - DJI Mic 3 Stereo Mode => TX1 left / TX2 right over USB-C (DJI docs).
+- **LIVE ROUND-TRIP VERIFIED ON DAVID'S KEY (16 Jun 2026).** With `google-genai==2.8.0` I
+  connected to `gemini-3.5-live-translate-preview` with `translation_config(target="en")` +
+  input/output transcription, streamed ~4.3 s of German (macOS `say -v Anna`) as 100 ms
+  `send_realtime_input` Blobs, and got back: input transcript "Guten Morgen. Wie geht es Ihnen
+  heute? Das Wetter ist heute sehr...", output transcript "Good morning. How are you today?
+  The weather...", and ~1.08 MB of 24 kHz translated audio. **=> Risk #1 (SDK) and #2 (preview
+  model reachable on the key) are RETIRED; Slice 0's core round-trip already works.** The
+  fresh build instance can treat the send/receive/config surface in "Correct SDK surface" as
+  proven and go straight to building.
 
 ## Output design (UPDATED - David's AirPods decision)
 

@@ -1,4 +1,4 @@
-# Implementation plan - Python prototype (v3, post web-research + AirPods design)
+# Implementation plan - Python prototype (v4, + parallel/ultracode build strategy)
 
 **Goal:** a single-machine Python prototype that turns a DJI Mic 3 (USB-C, Stereo Mode =>
 TX1=left, TX2=right) into a two-way German<->English live translator on Gemini 3.5 Live
@@ -6,8 +6,13 @@ Translate, and **measures real latency** (German verb-final = stated worst case)
 Electron UI. Concept: [[concept-dji-mic3-two-way]]. API facts: [[gemini-live-3-5-translate]],
 [[thursdai-insights]].
 
-> v3 history: v1 (my plan) -> GPT-5 adversarial review -> v2 -> web research into others'
-> real-world gotchas + David's AirPods design decision -> v3. Changelog at the bottom.
+> v4 history: v1 (my plan) -> GPT-5 review -> v2 -> web research + AirPods -> v3 -> parallel
+> multi-agent ("ultracode") build strategy -> v4. Changelog at the bottom.
+>
+> **For the ultracode instance:** read "## Building with ultracode / parallel subagents" near
+> the end first - it tells you what to fan out, what is a hard barrier, and what CANNOT be
+> done by agents (hardware/human gates). The contracts you need to fan out against are already
+> verified and in this doc (see "Correct SDK surface" + "Architecture").
 
 ## Verified facts (checked locally + against Google docs, 16 Jun 2026)
 
@@ -197,6 +202,82 @@ access to `gemini-3.5-live-translate-preview` (API-key, not Vertex).
 
 ---
 
+## Building with ultracode / parallel subagents
+
+This section is for the fresh Claude Code instance that will implement this with the dynamic
+multi-agent workflow approach. The honest summary: **the code is very parallelizable, but the
+proof is not** - validation is hardware- and human-gated and stays sequential.
+
+### The key enabler: contracts are already known, so fan out immediately
+
+Normally you'd have to run a sequential spike before you know the API shape. Here the SDK
+surface is **already verified** (`google-genai>=2.8.0`: `send_realtime_input`,
+`server_content.model_turn.parts[].inline_data`, `TranslationConfig`, transcription configs;
+16k-in/24k-out/100 ms - see "Correct SDK surface"). So you can write a **skeleton commit that
+fixes the module interfaces first**, then fan out implementation against those frozen
+contracts. Contract-first is what makes the parallelism safe (agents don't diverge).
+
+### Dependency graph (what's parallel vs sequential vs human-only)
+
+```
+[Phase 1: SKELETON]  one agent, BARRIER
+   define interfaces + dataclasses (config), module APIs, the in-memory PCM contract
+   (bytes, 16k mono LE in / 24k mono LE out), and a fakeable boundary for the Live session
+        │
+        ▼
+[Phase 2: PARALLEL IMPLEMENT]  fan out, worktree-isolated, ~4 independent agents
+   A) translate_session.py  - Live API wrapper; testable vs the API with canned wav, no audio HW
+   B) audio_io.py           - device enum, input callback+ring buffers, streaming resampler,
+                              output jitter buffer; testable with synthetic/loopback audio, no API
+   C) latency.py            - paced-clip harness + forced-alignment analysis; against the contracts
+   D) fixtures/scaffolding  - canned DE/EN clips (incl. verb-final sentences), .env.example,
+                              pyproject pin, --list-devices, CLI skeleton in app.py
+        │   (A and B are the two big ones and are fully independent - different files, different
+        │    test rigs: A needs a key but no hardware; B needs neither)
+        ▼
+[Phase 3: INTEGRATE + ADVERSARIAL VERIFY]  one integrator, then a verify panel
+   integrate app.py wiring (join/barrier); then parallel verifiers, each a distinct lens:
+     - SDK-contract verifier: does send/receive match the LIVE docs TODAY (preview = shifting)?
+     - audio-correctness verifier: streaming resampler keeps filter state? buffers bounded +
+       drop policy? output zero-fills on underrun? no work in PortAudio callbacks?
+     - concurrency verifier: two sessions, backpressure, go_away/reconnect, no deadlock
+        │
+        ▼
+[Phase 4: HARDWARE + HUMAN GATES]  *** NOT agent work - sequential checkpoints for David ***
+   Slice 1 (real DJI 2ch + AirPods A2DP/no-HFP), Slice 3 (real latency rig, wired vs AirPods),
+   Slice 4 (real two-way + sister-in-law's German accent). Agents PREPARE these (harness, runbook,
+   logging); a human RUNS them on the physical machine.
+```
+
+### Concrete fan-out for Phase 2 (low conflict by construction)
+- Each agent owns **one file** -> use **worktree isolation** so each can run its own checks
+  without stepping on the others, then merge. (app.py is the only shared file; it belongs to
+  the Phase-3 integrator, not Phase 2.)
+- Give each agent: the frozen interface from Phase 1, the relevant section of this plan, and a
+  self-contained acceptance test it must pass (A: canned-wav round-trip; B: synthetic-audio
+  resample+route with assertions on rate/channels/buffer bounds; C: deterministic timestamp
+  math on a fake stream).
+
+### What ultracode buys here, and what it does NOT
+- **Buys:** A and B (the bulk of the code) built concurrently; a real adversarial verify pass
+  on the two genuinely risky areas (the preview SDK surface, and the realtime audio plumbing)
+  using multiple lenses instead of one generate-and-hope; research/fixtures in parallel.
+- **Does NOT buy:** any shortcut through the hardware/human gates. Mic capture, AirPods
+  behaviour, real latency, and accent robustness are physical and must be measured by David on
+  the device. Don't let a workflow "declare success" on those - they're checkpoints, not tasks.
+- **Caution:** don't over-fan-out the trivial parts (config/CLI) - the win is concentrating
+  agent effort on (1) the audio plumbing correctness and (2) verifying the preview API against
+  live docs, because those are where this breaks. Spend the parallel budget on verification,
+  not on splitting a 40-line config file four ways.
+
+### Suggested workflow phases (maps to the graph)
+1. **Skeleton** (1 agent, barrier) -> 2. **Implement** (parallel, worktree, ~4 agents) ->
+   3. **Integrate + verify** (1 integrator + a 3-lens verify panel) -> stop and hand the
+   hardware runbook to David for the Phase-4 gates. Re-enter a small workflow afterwards for
+   Slice 5 polish if wanted.
+
+---
+
 ## Changelog
 **v1 -> v2 (GPT-5 review):** corrected the deprecated `session.send`/`response.data` to
 `send_realtime_input` + `server_content.model_turn.parts`; 100 ms real-time-paced chunks;
@@ -204,6 +285,14 @@ hardened audio plumbing (bounded buffers, streaming resampler, jitter buffers); 
 mouth-to-ear latency rig + verb-final metric; re-ordered slices (SDK spike vs hardware spike
 split; one-direction latency before two-way; two-session quota proven with canned streams);
 macOS device/clock specifics. Flagged installed `google-genai` 1.56.0 lacks `TranslationConfig`.
+
+**v3 -> v4 (parallel / ultracode build strategy):** added "Building with ultracode / parallel
+subagents" - a contract-first fan-out (skeleton barrier -> ~4 worktree-isolated implementers,
+the two big independent ones being the Live-session wrapper and the audio I/O -> integrate +
+a 3-lens adversarial verify panel), with an explicit, honest line that the hardware/human gates
+(real DJI+AirPods, latency rig, accent test) CANNOT be done by agents and stay sequential
+checkpoints. Steer the parallel budget at audio-plumbing correctness + verifying the preview
+API against live docs, not at splitting trivial files.
 
 **v2 -> v3 (web research + AirPods):**
 - **SDK fix made concrete + verified:** `google-genai>=2.8.0` exposes `TranslationConfig`

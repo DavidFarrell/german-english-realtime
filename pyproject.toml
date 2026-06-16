@@ -1,0 +1,35 @@
+[project]
+name = "german-english-realtime"
+version = "0.1.0"
+description = "Two-way German<->English live speech translator on Gemini 3.5 Live Translate (DJI Mic 3 + stereo earbud out)"
+requires-python = ">=3.11"
+dependencies = [
+    # Pinned EXACTLY: 1.56.0 lacked TranslationConfig; a loose >= could pull a future
+    # breaking preview SDK. 2.8.0 is the verified-working surface (see notes/plan-python-prototype.md).
+    "google-genai==2.8.0",
+    "sounddevice>=0.4.7",   # PortAudio bindings: device enumeration + duplex streams
+    "soxr>=0.5.0",          # streaming resampler with retained filter state
+    "numpy>=1.26",
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+ger = "app:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.uv]
+package = false
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

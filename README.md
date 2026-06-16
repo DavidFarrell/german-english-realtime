@@ -3,6 +3,10 @@
 Exploring a real-time **German <-> English** speech translation tool, built on Google's
 **Gemini 3.5 Live Translate** (announced 9 June 2026; runs on the Gemini Live API).
 
+> ⚠️ **Build instance, read `notes/ui-is-provisional.md` first.** The UI is provisional - David
+> is producing the real wireframes/prototype in Claude Design. Keep the UI thin, plain, and
+> swappable; build the audio/translation core first; don't apply styling yet.
+
 ## Layout
 
 - `live_translate_starter.py` - the AI Studio starter David pasted in: the Live API audio

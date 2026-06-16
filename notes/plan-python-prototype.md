@@ -13,6 +13,10 @@ Electron UI. Concept: [[concept-dji-mic3-two-way]]. API facts: [[gemini-live-3-5
 > the end first - it tells you what to fan out, what is a hard barrier, and what CANNOT be
 > done by agents (hardware/human gates). The contracts you need to fan out against are already
 > verified and in this doc (see "Correct SDK surface" + "Architecture").
+>
+> **Also read [[ui-is-provisional]]:** the UI is provisional - real wireframes/prototype are
+> coming from Claude Design. Build the audio/translation CORE first; keep the UI thin, plain,
+> decoupled, and swappable; do NOT apply styling/design-system theming yet.
 
 ## Verified facts (checked locally + against Google docs, 16 Jun 2026)
 

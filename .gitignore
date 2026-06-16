@@ -73,3 +73,6 @@ Thumbs.db
 # --- Notes / reference media exceptions ---
 # Keep the reference quickstart and notes; ignore any large mirrored demo media you drop in.
 demo_media/
+
+.pytest_cache/
+out_loopback_*.wav

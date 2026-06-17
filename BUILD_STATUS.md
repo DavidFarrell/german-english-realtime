@@ -1,5 +1,31 @@
 # Build status - two-way DE<->EN live translator
 
+## 17 Jun 2026 - Desktop UI built (Electron + Python bridge)
+
+`DebbieDavidApp.dc.html` (Claude Design, Riso Zine Funky) is now implemented as a real macOS app.
+- **Electron shell** (`desktop/`): a dumb renderer faithful to the design (splash -> setup accordion
+  for inputs/outputs/channel-test -> live two-column transcript; crossed-wiring + device-not-found
+  states). Real macOS traffic lights overlay the design's title bar. `cd desktop && npm install && npm start`.
+- **Python bridge** (`gui_bridge/`): a 2nd composition root that REUSES the frozen engine
+  (`translate_session.live_events`, `audio.PortAudioRuntime`) and adds the wizard's controls -
+  device pickers, input gain, per-mic test, channel-test loopback (~0.3 s self-echo), crossed-wiring
+  swaps, start/stop. Talks to the renderer over a local WebSocket (`desktop/PROTOCOL.md`).
+- **Frozen core untouched**: `contracts.py`/`config.py`/`translate_session.py`/`app.py` unchanged.
+  Additive hooks only: `devices.list_devices_structured`/`find`, `output.enqueue_device_samples`.
+- **Verified**: `python tools/bridge_smoke.py` drives the whole protocol over a real ws with fakes
+  (no API, no hardware) - 12/12 PASS. 74 engine unit tests still green. Renderer JS lint-clean.
+  Not yet screen-grabbed live (browser automation declined); run `npm start` to see it.
+- **Routing (CONFIRMED by David, 17 Jun)**: the GUI uses the REAL two-person product wiring
+  (CROSSED - each person hears the OTHER, translated, in their own ear: left speaks+hears English,
+  right speaks+hears German, per the design's live screen). The frozen `config.py` is SAME-SIDE,
+  which is the mics-in-earcups desk-rig loopback wiring; that stays as-is for the hw tests. The GUI
+  routing is data (`engine.routing`); the channel-test swaps adjust it live, and the channel test
+  itself plays each mic into the SAME physical side's ear (a physical self-check). See desktop/README.md.
+
+---
+
+
+
 Built overnight 16 Jun 2026 (ultracode). **The engine works end-to-end on real hardware.** One
 hardware setting needs your hand before simultaneous two-way will work (see "One thing for you").
 

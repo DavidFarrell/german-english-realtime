@@ -1,0 +1,39 @@
+/* ==========================================================================
+   Paidia · Riso Zine Funky — Colour tokens
+   --------------------------------------------------------------------------
+   THE FOUR-INK DISCIPLINE. A real risograph runs a few spot inks, one pass
+   each. This system pretends to be exactly that: four inks, no more — two
+   purples (the "paper") and two fluoro spots (yellow + pink). Plus a warm
+   off-white for type, and one near-secret plum for the chat "you:" voice.
+
+   Hard rules (see readme.md): never add a third spot ink, and NEVER
+   reintroduce terracotta / clay orange — the tell-tale "AI default" colour.
+   Type on a spot/paper plate is always the deep purple (--rz-ink), never black.
+   ========================================================================== */
+
+:root {
+  /* ---- Palette — the riso ink set -------------------------------------- */
+  --rz-purple:        #2b1f4f;   /* deep purple — the default "paper" plate  */
+  --rz-purple-deep:   #1a1438;   /* deeper purple — alternating slides       */
+  --rz-paper:         #fbf3d8;   /* warm off-white — all type on purple      */
+  --rz-yellow:        #fff200;   /* fluoro yellow — spot ink #1 (primary)    */
+  --rz-pink:          #ff5fa2;   /* riso pink — spot ink #2 (secondary)      */
+
+  /* Ink-on-spot — text colour to drop ONTO a yellow/pink/paper plate.
+     Always the deep purple, never black: keeps the four-ink discipline.    */
+  --rz-ink:           var(--rz-purple-deep);
+
+  /* Plum — the one "third" colour, used only for the "you:" voice in chat
+     mock-ups and as a deep accent on paper. Use sparingly.                 */
+  --rz-plum:          #7a1f5a;
+
+  /* Rules / hairlines — paper at low alpha, for dividers on purple.        */
+  --rz-rule:          rgba(251, 243, 216, 0.16);
+  --rz-rule-strong:   rgba(251, 243, 216, 0.32);
+  --rz-rule-on-light: rgba(26, 20, 56, 0.18);   /* divider on a paper plate */
+
+  /* Paper at alpha — muted type on purple (footers, captions, deks).       */
+  --rz-paper-70:      rgba(251, 243, 216, 0.70);
+  --rz-paper-85:      rgba(251, 243, 216, 0.85);
+  --rz-paper-50:      rgba(251, 243, 216, 0.50);
+}

@@ -1,0 +1,24 @@
+/* ==========================================================================
+   Paidia · Riso Zine Funky — Design System entry point
+   --------------------------------------------------------------------------
+   Consumers link THIS one file. It is a list of @import lines only — every
+   token, font-face and the WEB component layer is reached from here.
+
+   ⚠️  The DECK layer (styles/deck.css) is intentionally NOT imported here.
+   Decks and web pages share class names by design (.rz-display, .rz-list,
+   .rz-chip, .rz-code); loading both on one page is order-dependent and will
+   drift. Build web/app surfaces from this file; build slide decks by linking
+   the deck stack directly (see styles/deck.css and ui_kits/deck/).
+   ========================================================================== */
+
+/* ── Foundations (tokens + fonts) ───────────────────────────────────────── */
+@import url("./tokens/fonts.css");
+@import url("./tokens/colors.css");
+@import url("./tokens/typography.css");
+@import url("./tokens/spacing.css");
+@import url("./tokens/funk.css");
+@import url("./tokens/semantic.css");
+
+/* ── Web component layer + element defaults ─────────────────────────────── */
+@import url("./styles/components.css");
+@import url("./styles/base.css");

@@ -54,3 +54,37 @@ def list_devices() -> str:
             f"{int(dev['max_output_channels']):>3} | "
             f"{float(dev['default_samplerate']):>10.0f} Hz | {dev['name']}")
     return "\n".join(rows)
+
+
+def list_devices_structured(kind: Literal["input", "output"] | None = None) -> list[dict]:
+    """Structured device list for GUI pickers: [{index, name, inCh, outCh, rate}].
+
+    With `kind`, only devices that can do that kind (>= 1 channel) are returned. The Bose HFP mic
+    entry is still listed (the picker may show it) - the HFP guard only bites at resolve time.
+    """
+    out: list[dict] = []
+    for idx, dev in enumerate(sd.query_devices()):
+        in_ch = int(dev["max_input_channels"])
+        out_ch = int(dev["max_output_channels"])
+        if kind == "input" and in_ch < 1:
+            continue
+        if kind == "output" and out_ch < 1:
+            continue
+        out.append({
+            "index": idx, "name": str(dev["name"]),
+            "inCh": in_ch, "outCh": out_ch,
+            "rate": int(float(dev["default_samplerate"])),
+        })
+    return out
+
+
+def find(name: str, kind: Literal["input", "output"], min_channels: int = 2) -> int | None:
+    """Non-raising presence check: return a usable device index for `name`/`kind`, or None.
+
+    A thin wrapper over resolve_device that swallows DeviceError so the GUI can poll for hardware
+    (the device-not-found screen + Rescan) without exceptions.
+    """
+    try:
+        return resolve_device(name, kind, min_channels=min_channels)
+    except DeviceError:
+        return None

@@ -1,0 +1,14 @@
+{
+  "name": "debbiedavidapp",
+  "version": "0.4.0",
+  "description": "Two-person German<->English live speech translator - Electron shell over the Python bridge.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "author": "Paidia",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "electron": "^32.0.0"
+  }
+}

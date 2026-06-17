@@ -1,0 +1,94 @@
+/* ==========================================================================
+   Paidia · Riso Zine Funky — THE FUNK + motion + the straight-cut theme
+   --------------------------------------------------------------------------
+   What separates this from a flat website with an accent colour. Three moves:
+   rotation, an un-blurred offset block-shadow, and a halftone dot wash. Always
+   reach for these tokens — never freehand an angle — so the wobble stays
+   coherent. There are NO soft drop shadows in this system.
+
+   Rotation/skew/halftone/motion values aren't colour/spacing/radius/shadow, so
+   they carry an explicit `@kind` tag (`other` for transforms, washes, motion;
+   `shadow` for the offset blocks).
+   ========================================================================== */
+
+:root {
+  /* ---- Rotation — THE FUNK -------------------------------------------- */
+  /* The hand-printed wobble. Every plate sits a degree or two off-true.    */
+  --rz-rot-xs:    -0.6deg;  /* @kind other */
+  --rz-rot-sm:    -1.2deg;  /* @kind other */
+  --rz-rot-sm-cw:  1.4deg;  /* @kind other */
+  --rz-rot-md:    -1.5deg;  /* @kind other */
+  --rz-rot-lg:    -2deg;    /* @kind other */
+  --rz-rot-xl:    -3deg;    /* @kind other */ /* num-marker               */
+  --rz-rot-chip:    -1deg;  /* @kind other */ /* chips (less than tiles)  */
+  --rz-rot-chip-cw:  1deg;  /* @kind other */
+  --rz-rot-fig-alt:  0.6deg;/* @kind other */ /* alternate figure tilt    */
+  --rz-rot-hover:   -0.5deg;/* @kind other */ /* card hover tilt (web)    */
+  --rz-skew:      -8deg;    /* @kind other */ /* scribble underline       */
+
+  /* ---- Riso offset shadow (NOT a drop shadow) ------------------------- */
+  /* A hard, un-blurred colour block behind a plate — the signature
+     mis-registration look. Always a flat spot ink, never rgba/blur.        */
+  --rz-offset-pink:      8px 8px 0 0 var(--rz-pink);    /* @kind shadow */
+  --rz-offset-yellow:   -8px 8px 0 0 var(--rz-yellow);  /* @kind shadow */
+  --rz-offset-sm-pink:   6px 6px 0 0 var(--rz-pink);    /* @kind shadow */
+  --rz-offset-sm-yellow: 6px 6px 0 0 var(--rz-yellow);  /* @kind shadow */
+
+  /* ---- Halftone wash -------------------------------------------------- */
+  /* A dot screen laid over a slide at low opacity. Yellow or pink dots.    */
+  --rz-halftone-size:    18px 18px;  /* @kind other */
+  --rz-halftone-yellow:  radial-gradient(rgba(255, 242, 0, 0.40) 1.4px, transparent 1.4px);  /* @kind other */
+  --rz-halftone-pink:    radial-gradient(rgba(255, 95, 162, 0.45) 1.4px, transparent 1.4px); /* @kind other */
+  --rz-halftone-opacity: 0.18;       /* @kind other */
+  --rz-halftone-opacity-subtle: 0.08;/* @kind other */
+
+  /* ---- Motion --------------------------------------------------------- */
+  --rz-dur-fast: 0.14s;  /* @kind other */
+  --rz-dur-base: 0.28s;  /* @kind other */
+  --rz-ease:     cubic-bezier(0.2, 0.8, 0.2, 1);  /* @kind other */
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --rz-dur-fast: 0s;  /* @kind other */
+    --rz-dur-base: 0s;  /* @kind other */
+  }
+}
+
+/* ==========================================================================
+   THE STRAIGHT CUT — one switch, not a recipe
+   --------------------------------------------------------------------------
+   For rooms that "aren't ready for funk". Set `data-rz-cut="straight"` on the
+   <html> or <body> element (web), or on <html>/<body> for a deck — the custom
+   properties inherit down through the deck-stage slot to every slide. It zeroes
+   EVERY funk token — all rotations, the skew, all radii, both halftone
+   opacities, and the offset block-shadows — so the wobble, the round corners,
+   the dot wash and the mis-registration shadow all come off in one move,
+   leaving the palette and type untouched. The one deliberate exception is the
+   live-dot (.rz-live::before), which stays a true circle.
+
+   It is a single-selector THEME scope (a data attribute), so the overrides
+   register as design-system theme tokens.
+   ========================================================================== */
+[data-rz-cut="straight"] {
+  --rz-rot-xs: 0deg;       /* @kind other */
+  --rz-rot-sm: 0deg;       /* @kind other */
+  --rz-rot-sm-cw: 0deg;    /* @kind other */
+  --rz-rot-md: 0deg;       /* @kind other */
+  --rz-rot-lg: 0deg;       /* @kind other */
+  --rz-rot-xl: 0deg;       /* @kind other */
+  --rz-rot-chip: 0deg;     /* @kind other */
+  --rz-rot-chip-cw: 0deg;  /* @kind other */
+  --rz-rot-fig-alt: 0deg;  /* @kind other */
+  --rz-rot-hover: 0deg;    /* @kind other */
+  --rz-skew: 0deg;         /* @kind other */
+  --rz-radius-sm: 0;       /* @kind radius */
+  --rz-radius: 0;          /* @kind radius */
+  --rz-radius-pill: 0;     /* @kind radius */
+  --rz-halftone-opacity: 0;        /* @kind other */
+  --rz-halftone-opacity-subtle: 0; /* @kind other */
+  --rz-offset-pink: none;      /* @kind shadow */
+  --rz-offset-yellow: none;    /* @kind shadow */
+  --rz-offset-sm-pink: none;   /* @kind shadow */
+  --rz-offset-sm-yellow: none; /* @kind shadow */
+}

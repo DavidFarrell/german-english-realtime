@@ -93,6 +93,20 @@ class OutputEngine:
         self._buffers[channel].append(res)
         return True
 
+    def enqueue_device_samples(self, channel: OutputChannel, samples: np.ndarray) -> bool:
+        """Append samples that are ALREADY at the device rate, bypassing the 24k->device resampler.
+
+        For non-model audio that the GUI plays directly into one earbud (channel-test loopback,
+        test tones). The caller is responsible for resampling to `self._device_rate`. L/R are still
+        never mixed - this only touches the one channel's jitter buffer.
+        """
+        self._buffers[channel].append(np.asarray(samples, dtype=np.int16).ravel())
+        return True
+
+    @property
+    def device_rate(self) -> int:
+        return self._device_rate
+
     # -- callback: pull from both buffers, interleave L/R; no mixing, no alloc-heavy work --
     def _callback(self, outdata, frames, time_info, status) -> None:  # pragma: no cover (device)
         left = self._buffers[OutputChannel.LEFT].pull(frames)

@@ -1,0 +1,40 @@
+/* ==========================================================================
+   Paidia · Riso Zine Funky — Spacing, layout & radius tokens
+   --------------------------------------------------------------------------
+   8-px base spacing with 4-px half-steps. Web layout: container max 1280px,
+   12-column grid. Corners are square-ish — a chunky 8px on plates, full pill
+   on chips. (The straight cut zeroes the radii — see tokens/funk.css.)
+   ========================================================================== */
+
+:root {
+  /* ---- Spacing (8-px base, with 4-px half-steps) ---------------------- */
+  --rz-sp-1:  0.25rem;
+  --rz-sp-2:  0.5rem;
+  --rz-sp-3:  0.75rem;
+  --rz-sp-4:  1rem;
+  --rz-sp-6:  1.5rem;
+  --rz-sp-8:  2rem;
+  --rz-sp-10: 2.5rem;
+  --rz-sp-12: 3rem;
+  --rz-sp-16: 4rem;
+  --rz-sp-20: 5rem;
+  --rz-sp-24: 6rem;
+
+  /* ---- Layout (web) --------------------------------------------------- */
+  --rz-container-max:  1280px;                      /* @kind spacing */
+  --rz-container-pad:  clamp(1.25rem, 5vw, 6.5rem); /* @kind spacing */
+  --rz-grid-columns:   12;                          /* @kind other */
+  --rz-grid-gutter:    clamp(1.5rem, 3vw, 3.5rem);  /* @kind spacing */
+  --rz-prose-max:      62ch;                         /* @kind spacing */
+
+  /* Deck slide geometry. */
+  --rz-d-stage-w:   1920px;            /* @kind spacing */
+  --rz-d-stage-h:   1080px;            /* @kind spacing */
+  --rz-d-slide-pad: 88px 104px 64px;   /* @kind spacing */ /* top, sides, bottom */
+
+  /* ---- Radius --------------------------------------------------------- */
+  --rz-radius-0:    0;
+  --rz-radius-sm:   4px;
+  --rz-radius:      8px;     /* tiles, figures, code blocks                 */
+  --rz-radius-pill: 999px;   /* chips, the live-dot                         */
+}

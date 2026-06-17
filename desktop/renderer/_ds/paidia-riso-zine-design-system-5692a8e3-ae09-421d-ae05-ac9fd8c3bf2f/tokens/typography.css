@@ -1,0 +1,91 @@
+/* ==========================================================================
+   Paidia · Riso Zine Funky — Typography tokens
+   --------------------------------------------------------------------------
+   Three families, each with ONE job. The discipline is the design.
+
+   - Archivo Black — display only. Headlines, big numerals. Set TIGHT
+     (line-height 0.84–0.92, tracking -0.03 to -0.045em, lines overlapping).
+   - Archivo (variable, pushed to 700–900) — body, leads, UI, build lists.
+   - JetBrains Mono — all the chrome: eyebrows, footers, captions, chips, code.
+
+   Two scales: DECK tokens (--rz-d-*) are ABSOLUTE px for the fixed 1920×1080
+   stage; WEB tokens (--rz-fs-*) are fluid clamp(). Same proportions.
+
+   Every token here is type-related, so all are tagged `@kind font`.
+   ========================================================================== */
+
+:root {
+  /* ---- Type families --------------------------------------------------- */
+  --rz-display: "Archivo Black", "Arial Black", system-ui, sans-serif; /* @kind font */
+  --rz-sans:    "Archivo", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif; /* @kind font */
+  --rz-mono:    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace; /* @kind font */
+
+  /* ---- DECK type scale (absolute px for the 1920×1080 stage) ----------- */
+  --rz-d-display-1: 200px;        /* @kind font */ /* title / section hero  */
+  --rz-d-display-2: 170px;        /* @kind font */ /* concept heroes        */
+  --rz-d-display-3: 130px;        /* @kind font */ /* smaller hero          */
+  --rz-d-display-lh: 0.84;        /* @kind font */
+  --rz-d-display-track: -0.045em; /* @kind font */
+
+  --rz-d-heading-1: 96px;         /* @kind font */ /* slide H2 */
+  --rz-d-heading-2: 80px;         /* @kind font */
+  --rz-d-heading-3: 64px;         /* @kind font */
+  --rz-d-heading-4: 48px;         /* @kind font */
+  --rz-d-heading-lh: 0.92;        /* @kind font */
+  --rz-d-heading-track: -0.03em;  /* @kind font */
+
+  --rz-d-lead:      32px;         /* @kind font */ /* deck — sub-headline    */
+  --rz-d-lead-lh:   1.32;         /* @kind font */
+  --rz-d-body:      26px;         /* @kind font */ /* deck — body copy       */
+  --rz-d-body-lh:   1.5;          /* @kind font */
+  --rz-d-body-sm:   24px;         /* @kind font */
+  --rz-d-list:      30px;         /* @kind font */ /* build-list default     */
+  --rz-d-list-lg:   36px;         /* @kind font */
+  --rz-d-list-sm:   26px;         /* @kind font */
+  --rz-d-tile-num:  140px;        /* @kind font */ /* num-marker / big num   */
+  --rz-d-tile-h:    80px;         /* @kind font */ /* tile heading           */
+
+  /* Deck mono chrome (footers, eyebrows, captions, chips). */
+  --rz-d-mono-foot:    24px;      /* @kind font */
+  --rz-d-mono-foot-track:    0.14em; /* @kind font */
+  --rz-d-mono-eyebrow: 22px;      /* @kind font */
+  --rz-d-mono-eyebrow-track: 0.18em; /* @kind font */
+  --rz-d-mono-chip:    18px;      /* @kind font */
+  --rz-d-mono-chip-track:    0.12em; /* @kind font */
+  --rz-d-mono-lbl:     16px;      /* @kind font */
+  --rz-d-mono-lbl-track:     0.14em; /* @kind font */
+
+  /* ---- WEB type scale (fluid rem) ------------------------------------- */
+  --rz-fs-display: clamp(3.5rem, 9vw, 7.5rem);    /* @kind font */
+  --rz-lh-display: 0.86;                           /* @kind font */
+  --rz-fs-h1:      clamp(2.75rem, 6vw, 5rem);      /* @kind font */
+  --rz-lh-h1: 0.94;                                /* @kind font */
+  --rz-fs-h2:      clamp(2.25rem, 4.5vw, 3.5rem);  /* @kind font */
+  --rz-lh-h2: 0.98;                                /* @kind font */
+  --rz-fs-h3:      clamp(1.75rem, 3vw, 2.5rem);    /* @kind font */
+  --rz-lh-h3: 1.05;                                /* @kind font */
+  --rz-fs-h4:      1.5rem;                         /* @kind font */
+  --rz-lh-h4: 1.15;                                /* @kind font */
+  --rz-fs-lead:    clamp(1.25rem, 2vw, 1.625rem);  /* @kind font */
+  --rz-lh-lead: 1.35;                              /* @kind font */
+  --rz-fs-body:    1.125rem;                       /* @kind font */
+  --rz-lh-body: 1.55;                              /* @kind font */
+  --rz-fs-sm:      1rem;                           /* @kind font */
+  --rz-lh-sm: 1.5;                                 /* @kind font */
+  --rz-fs-mono:    0.875rem;                       /* @kind font */
+  --rz-track-mono: 0.14em;                         /* @kind font */
+  --rz-fs-eyebrow: 0.8125rem;                      /* @kind font */
+  --rz-track-eyebrow: 0.18em;                      /* @kind font */
+
+  /* Display/heading tracking (web). Archivo (Black) is set tight. */
+  --rz-track-display: -0.04em;    /* @kind font */
+  --rz-track-heading: -0.03em;    /* @kind font */
+  --rz-track-tight:   -0.02em;    /* @kind font */
+
+  /* ---- Weights -------------------------------------------------------- */
+  --rz-w-reg:   400;   /* @kind font */
+  --rz-w-med:   500;   /* @kind font */
+  --rz-w-semi:  600;   /* @kind font */
+  --rz-w-bold:  700;   /* @kind font */
+  --rz-w-black: 900;   /* @kind font */ /* Archivo (variable) pushed to top */
+}

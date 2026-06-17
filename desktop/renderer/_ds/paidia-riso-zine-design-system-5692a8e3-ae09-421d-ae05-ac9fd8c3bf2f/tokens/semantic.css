@@ -1,0 +1,36 @@
+/* ==========================================================================
+   Paidia · Riso Zine Funky — Semantic aliases
+   --------------------------------------------------------------------------
+   Generic fg/bg/accent names mapped over the --rz-* token set, so a page can
+   be built without learning the full vocabulary. There is no single "accent":
+   the brand voice runs TWO spot inks (yellow primary, pink secondary).
+   ========================================================================== */
+
+:root {
+  /* Surfaces */
+  --bg1:      var(--rz-purple);        /* default page plate            */
+  --bg2:      var(--rz-purple-deep);   /* alternating / deeper plate    */
+  --bg-spot1: var(--rz-yellow);        /* fluoro plate #1               */
+  --bg-spot2: var(--rz-pink);          /* fluoro plate #2               */
+  --bg-paper: var(--rz-paper);         /* light plate (figures, cards)  */
+
+  /* Ink */
+  --fg1:        var(--rz-paper);       /* default text (on purple)      */
+  --fg-mute:    var(--rz-paper-70);    /* captions, footers             */
+  --fg-on-spot: var(--rz-ink);         /* text dropped onto a spot plate*/
+
+  /* Brand voice — two spot inks, no single "accent" */
+  --accent:   var(--rz-yellow);        /* primary spot                  */
+  --accent-2: var(--rz-pink);          /* secondary spot                */
+
+  /* Type */
+  --font-display: var(--rz-display);
+  --font-body:    var(--rz-sans);
+  --font-mono:    var(--rz-mono);
+
+  --h1: var(--rz-fs-h1);
+  --h2: var(--rz-fs-h2);
+  --h3: var(--rz-fs-h3);
+  --h4: var(--rz-fs-h4);
+  --body: var(--rz-fs-body);
+}

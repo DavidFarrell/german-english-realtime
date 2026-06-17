@@ -1,0 +1,187 @@
+/* ==========================================================================
+   Paidia · Riso Zine Funky — WEB components (.rz-*)
+   --------------------------------------------------------------------------
+   The riso-zine voice translated to a website / app. Class prefix .rz-*.
+   This is the WEB cut — for slide DECKS use styles/deck.css instead (the two
+   sets share class names by design; never load both on one page).
+
+   Tokens are provided by the project's styles.css (tokens/*). Put class="rz"
+   on <body> for the page wrapper, or use the element defaults in base.css.
+   ========================================================================== */
+
+/* ── Page wrapper ───────────────────────────────────────────────────────── */
+.rz {
+  font-family: var(--rz-sans);
+  background: var(--rz-purple);
+  color: var(--rz-paper);
+  -webkit-font-smoothing: antialiased;
+}
+.rz-deep { background: var(--rz-purple-deep); }
+
+/* ── Container + grid ───────────────────────────────────────────────────── */
+.rz-container {
+  width: 100%; max-width: var(--rz-container-max);
+  margin-inline: auto; padding-inline: var(--rz-container-pad);
+}
+.rz-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--rz-cols, 12), 1fr);
+  gap: var(--rz-grid-gutter);
+}
+@media (max-width: 768px) {
+  .rz-grid { grid-template-columns: repeat(var(--rz-cols-mobile, 1), 1fr); }
+}
+
+/* ── Section ────────────────────────────────────────────────────────────── */
+.rz-section { padding-block: clamp(3.5rem, 9vw, 8rem); position: relative; overflow: hidden; }
+.rz-section--tight { padding-block: clamp(2rem, 5vw, 4rem); }
+
+/* Web halftone wash — drop inside any section as a sibling layer. */
+.rz-wash {
+  position: absolute; inset: 0; pointer-events: none;
+  opacity: var(--rz-halftone-opacity);
+  background-image: var(--rz-halftone-yellow);
+  background-size: var(--rz-halftone-size);
+}
+.rz-wash--pink { background-image: var(--rz-halftone-pink); }
+.rz-wash--subtle { opacity: var(--rz-halftone-opacity-subtle); }
+
+/* ── Type helpers (web) ─────────────────────────────────────────────────── */
+.rz-display {
+  font-family: var(--rz-display); margin: 0;
+  font-size: var(--rz-fs-display); line-height: var(--rz-lh-display);
+  letter-spacing: var(--rz-track-display);
+}
+.rz-eyebrow {
+  display: inline-block;
+  font-family: var(--rz-mono); font-weight: 700;
+  font-size: var(--rz-fs-eyebrow); letter-spacing: var(--rz-track-eyebrow);
+  text-transform: uppercase; color: var(--rz-pink);
+}
+.rz-eyebrow--yellow { color: var(--rz-yellow); }
+.rz-lead { font-size: var(--rz-fs-lead); line-height: var(--rz-lh-lead); font-weight: 500; max-width: 48ch; }
+.rz-mono { font-family: var(--rz-mono); font-size: var(--rz-fs-mono); letter-spacing: var(--rz-track-mono); text-transform: uppercase; }
+
+/* Spot-ink highlighter (web). */
+.rz-yel  { color: var(--rz-yellow); }
+.rz-pink { color: var(--rz-pink); }
+.rz-mark      { background: var(--rz-yellow); color: var(--rz-ink); padding: 0 0.3em; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.rz-mark--pink{ background: var(--rz-pink);   color: var(--rz-ink); padding: 0 0.3em; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.rz-tilt { display: inline-block; transform: rotate(var(--rz-rot-md)); }
+
+/* ── Header / nav ───────────────────────────────────────────────────────── */
+.rz-header {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--rz-purple-deep);
+  backdrop-filter: saturate(140%) blur(8px);
+  border-bottom: 1px solid var(--rz-rule);
+}
+@supports (background: color-mix(in srgb, red, blue)) {
+  .rz-header { background: color-mix(in srgb, var(--rz-purple-deep) 88%, transparent); }
+}
+.rz-header__inner { display: flex; align-items: center; justify-content: space-between; padding-block: 1.1rem; }
+.rz-header__brand {
+  font-family: var(--rz-display); font-size: 1.5rem; letter-spacing: -0.03em;
+  color: var(--rz-paper); text-decoration: none;
+}
+.rz-nav { display: flex; gap: clamp(1rem, 2.5vw, 2.25rem); align-items: center; }
+.rz-nav a {
+  font-family: var(--rz-mono); font-size: 0.8125rem; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--rz-paper-85); text-decoration: none;
+  transition: color var(--rz-dur-fast) var(--rz-ease);
+}
+.rz-nav a:hover { color: var(--rz-yellow); }
+
+/* ── Hero ───────────────────────────────────────────────────────────────── */
+.rz-hero { padding-block: clamp(4rem, 12vw, 9rem); position: relative; overflow: hidden; }
+.rz-hero__inner { position: relative; z-index: 1; }
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+.rz-btn {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  font-family: var(--rz-mono); font-weight: 700; font-size: 0.875rem;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 0.9rem 1.5rem; border: 0; border-radius: var(--rz-radius);
+  background: var(--rz-yellow); color: var(--rz-ink); text-decoration: none;
+  cursor: pointer; transform: rotate(var(--rz-rot-sm));
+  transition: transform var(--rz-dur-fast) var(--rz-ease), filter var(--rz-dur-fast) var(--rz-ease);
+}
+.rz-btn:hover  { transform: rotate(0deg) scale(1.03); }
+.rz-btn--pink  { background: var(--rz-pink); color: var(--rz-ink); transform: rotate(var(--rz-rot-sm-cw)); }
+.rz-btn--ghost { background: transparent; color: var(--rz-paper); border: 1.5px solid var(--rz-rule-strong); transform: none; }
+.rz-btn--ghost:hover { border-color: var(--rz-yellow); color: var(--rz-yellow); transform: scale(1.03); }
+.rz-btn--sm { padding: 0.6rem 1.1rem; font-size: 0.8125rem; }
+.rz-btn:disabled, .rz-btn[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+/* ── Cards ──────────────────────────────────────────────────────────────── */
+.rz-card {
+  display: block; background: var(--rz-purple-deep);
+  border: 1px solid var(--rz-rule-strong); border-radius: var(--rz-radius);
+  padding: clamp(1.5rem, 3vw, 2.5rem); color: var(--rz-paper); text-decoration: none;
+  transition: transform var(--rz-dur-base) var(--rz-ease);
+}
+a.rz-card:hover { transform: translateY(-4px) rotate(var(--rz-rot-hover)); }
+.rz-card h3 { font-family: var(--rz-display); font-size: var(--rz-fs-h4); margin: 0.25rem 0 0.75rem; letter-spacing: var(--rz-track-tight); }
+.rz-card p  { margin: 0; color: var(--rz-paper-85); font-size: var(--rz-fs-body); line-height: var(--rz-lh-body); }
+
+/* Colour-plate card — a riso tile used as a feature card. */
+.rz-plate { border-radius: var(--rz-radius); padding: clamp(1.75rem, 3vw, 2.75rem); color: var(--rz-ink); }
+.rz-plate--yel   { background: var(--rz-yellow); transform: rotate(var(--rz-rot-sm)); }
+.rz-plate--pink  { background: var(--rz-pink);   transform: rotate(var(--rz-rot-sm-cw)); }
+.rz-plate--paper { background: var(--rz-paper);  transform: rotate(var(--rz-rot-xs)); }
+.rz-plate h3 { font-family: var(--rz-display); margin: 0 0 0.5rem; letter-spacing: -0.02em; color: var(--rz-ink); }
+.rz-plate p  { color: var(--rz-ink); }
+
+/* ── Stat ───────────────────────────────────────────────────────────────── */
+.rz-stat__value { font-family: var(--rz-display); font-size: clamp(2.5rem, 6vw, 4.5rem); line-height: 0.9; letter-spacing: -0.04em; }
+.rz-stat__label { font-family: var(--rz-mono); font-size: 0.8125rem; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.7; margin-top: 0.5rem; }
+
+/* ── Chip (web) ─────────────────────────────────────────────────────────── */
+.rz-chip {
+  display: inline-block; font-family: var(--rz-mono); font-size: 0.75rem;
+  letter-spacing: 0.1em; text-transform: uppercase; font-weight: 700;
+  padding: 0.5rem 0.9rem; border-radius: var(--rz-radius-pill);
+}
+.rz-chip--yel   { background: var(--rz-yellow); color: var(--rz-ink); transform: rotate(var(--rz-rot-chip)); }
+.rz-chip--pink  { background: var(--rz-pink);   color: var(--rz-ink); transform: rotate(var(--rz-rot-chip-cw)); }
+.rz-chip--ghost { background: transparent; color: var(--rz-paper); border: 1px solid var(--rz-rule-strong); }
+
+/* ── Build list (web) ───────────────────────────────────────────────────── */
+.rz-list { list-style: none; padding: 0; margin: 0; }
+.rz-list li {
+  display: grid; grid-template-columns: 1fr auto; gap: 1.5rem; align-items: baseline;
+  padding: 1rem 0; border-top: 1.5px solid var(--rz-rule);
+  font-size: var(--rz-fs-lead); line-height: 1.35;
+}
+.rz-list li:first-child { border-top: none; }
+.rz-list em { color: var(--rz-yellow); font-style: normal; }
+.rz-list .rz-dash  { font-family: var(--rz-mono); color: var(--rz-pink); }
+.rz-list .rz-arrow { font-family: var(--rz-mono); color: var(--rz-yellow); }
+
+/* ── Code block (web) ───────────────────────────────────────────────────── */
+.rz-code {
+  background: var(--rz-purple-deep); border: 1px solid var(--rz-rule-strong); border-radius: var(--rz-radius);
+  padding: 1.5rem 1.75rem; font-family: var(--rz-mono); font-size: 0.95rem; line-height: 1.6; color: var(--rz-paper);
+  overflow-x: auto;
+}
+.rz-code .rz-h { color: var(--rz-yellow); font-weight: 700; }
+.rz-code .rz-tag { color: var(--rz-pink); font-weight: 600; }
+.rz-code .rz-com { color: var(--rz-paper-50); font-style: italic; }
+
+/* ── Focus (keyboard) ───────────────────────────────────────────────────── */
+.rz-btn:focus-visible,
+.rz-card:focus-visible,
+.rz-nav a:focus-visible,
+.rz-footer a:focus-visible,
+.rz-plate:focus-visible {
+  outline: 3px solid var(--rz-yellow);
+  outline-offset: 3px;
+}
+
+/* ── Footer ─────────────────────────────────────────────────────────────── */
+.rz-footer { background: var(--rz-purple-deep); border-top: 1px solid var(--rz-rule); padding-block: clamp(2.5rem, 5vw, 4rem); }
+.rz-footer h4 { font-family: var(--rz-mono); font-size: 0.75rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--rz-yellow); margin: 0 0 1rem; }
+.rz-footer ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.rz-footer a { color: var(--rz-paper-85); text-decoration: none; font-size: 0.95rem; }
+.rz-footer a:hover { color: var(--rz-yellow); }
+.rz-footer__rule { border-top: 1px solid var(--rz-rule); padding-top: 1.5rem; margin-top: 2rem; font-family: var(--rz-mono); font-size: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--rz-paper-50); }

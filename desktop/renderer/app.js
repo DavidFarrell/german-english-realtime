@@ -69,7 +69,8 @@ function viewSignature(s, overlay) {
   const ctSig = `${ct.active ? 1 : 0}.${ct.side || '-'}.${ct.confirmed.left ? 1 : 0}${ct.confirmed.right ? 1 : 0}`;
   const devSig = `${s.input.found ? 1 : 0}${s.input.deviceIndex}.${s.output.found ? 1 : 0}${s.output.deviceIndex}`;
   const langSig = `${s.sides.left.lang}${s.sides.right.lang}`;
-  return `${s.wizardStep}|${overlay}|${ctSig}|${devSig}|${langSig}|${hello.inputDevices.length}.${hello.outputDevices.length}`;
+  const listSig = `${(s.inputDevices || []).length}.${(s.outputDevices || []).length}`;
+  return `${s.wizardStep}|${overlay}|${ctSig}|${devSig}|${langSig}|${listSig}`;
 }
 
 function applyState() {
@@ -231,10 +232,11 @@ function micBox(s, side) {
 }
 
 function deviceSelect(s, kind) {
-  const devs = (kind === 'input' ? hello.inputDevices : hello.outputDevices) || [];
+  const devs = (kind === 'input' ? s.inputDevices : s.outputDevices) || [];
   const cur = kind === 'input' ? s.input.deviceIndex : s.output.deviceIndex;
-  const sel = el('select', { class: 'sel', onchange: (e) => send('selectDevice', { kind, index: parseInt(e.target.value, 10) }) },
-    devs.map((d) => el('option', { value: d.index, selected: d.index === cur }, d.name)));
+  const opts = devs.map((d) => el('option', { value: d.index, selected: d.index === cur }, d.name));
+  if (cur == null) opts.unshift(el('option', { value: '', selected: true, disabled: true }, 'Choose a device…'));
+  const sel = el('select', { class: 'sel', onchange: (e) => e.target.value !== '' && send('selectDevice', { kind, index: parseInt(e.target.value, 10) }) }, opts);
   return el('div', { class: 'input-box' }, [sel, el('span', { class: 'caret' }, '▾')]);
 }
 
@@ -432,7 +434,11 @@ function notFoundRow(s, kind) {
         ] : [
           'Power on the earbuds.', 'Connect them over Bluetooth.', 'Pick them as the output device.',
         ]).map((t, i) => el('li', {}, [el('span', { class: 'n' }, '0' + (i + 1)), el('span', {}, t)]))),
-        el('div', { class: 'btn-row', style: 'margin-top:24px;align-items:center' }, [
+        el('div', { style: 'margin-top:22px;max-width:90%' }, [
+          el('div', { class: 'field__label' }, kind === 'input' ? 'Or choose another microphone' : 'Or choose another output device'),
+          deviceSelect(s, kind),
+        ]),
+        el('div', { class: 'btn-row', style: 'margin-top:18px;align-items:center' }, [
           el('a', { class: 'rz-btn', onclick: () => send('rescan') }, 'Rescan'),
           el('span', { class: 'mono', style: 'display:flex;align-items:center;gap:8px;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:var(--rz-paper-70)' },
             ['Scanning', el('span', { style: 'width:9px;height:16px;background:var(--rz-yellow);animation:rzblink 0.9s step-end infinite' })]),

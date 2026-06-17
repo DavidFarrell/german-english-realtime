@@ -138,6 +138,8 @@ class ViewState:
         self.wizard_step = "splash"
         self.input = DeviceSlot()
         self.output = DeviceSlot()
+        self.input_devices: list[dict] = []   # live device lists (refreshed ~1 Hz), for the pickers
+        self.output_devices: list[dict] = []
         self.gain = 0.72
         self.sides: dict[str, SideState] = {
             "left": SideState(name="David", lang="en"),
@@ -199,6 +201,8 @@ class ViewState:
             "wizardStep": self.wizard_step,
             "input": self.input.snapshot(),
             "output": self.output.snapshot(),
+            "inputDevices": self.input_devices,
+            "outputDevices": self.output_devices,
             "gain": round(self.gain, 3),
             "sides": {k: v.snapshot() for k, v in self.sides.items()},
             "channelTest": self.channel_test.snapshot(),

@@ -109,6 +109,9 @@ class GuiEngine:
         self.state.output.found = out_idx is not None
         self.state.output.index = out_idx
         self.state.output.name = self._output_name
+        # keep the live device lists fresh for the pickers (incl. the not-found screen)
+        self.state.input_devices = devices.list_devices_structured("input")
+        self.state.output_devices = devices.list_devices_structured("output")
 
     def list_devices(self) -> dict:
         return {

@@ -5,3 +5,5 @@ dist/
 build/icon.iconset/
 build/icon-raw.png
 renderer/assets/hero.png
+renderer/assets/hero-v1.png
+renderer/assets/hero-v2.png

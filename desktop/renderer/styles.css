@@ -65,11 +65,10 @@ button, a, input, select, [role=button] { -webkit-app-region: no-drag; }
   justify-content:center; overflow:hidden; border-left:1px solid var(--rz-rule); }
 .splash__hero .wash { position:absolute; inset:0; opacity:0.14;
   background-image:var(--rz-halftone-pink); background-size:var(--rz-halftone-size); }
-.hero-ph { position:relative; width:360px; height:440px; }
-.hero-ph__shadow { position:absolute; inset:0; transform:translate(14px,14px); background:var(--rz-pink); border-radius:8px; }
-.hero-ph__frame { position:absolute; inset:0; background:var(--rz-purple); border:2px dashed var(--rz-rule-strong);
-  border-radius:8px; transform:rotate(-1.5deg); display:flex; flex-direction:column; align-items:center;
-  justify-content:center; gap:12px; }
+.hero-card { position:relative; width:84%; max-width:480px; transform:rotate(-1.5deg); }
+.hero-card__shadow { position:absolute; inset:0; transform:translate(13px,13px); background:var(--rz-pink); border-radius:10px; }
+.hero-card__img { position:relative; display:block; width:100%; height:auto; border-radius:10px;
+  border:1px solid var(--rz-rule-strong); }
 
 /* ---- setup ---- */
 .setup { padding:34px 44px 56px; }

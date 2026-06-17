@@ -25,6 +25,7 @@ function el(tag, attrs, children) {
 }
 const $ = (id) => document.getElementById(id);
 const LANG_NAME = { en: 'English (UK)', de: 'Deutsch' };
+const HERO_SRC = 'assets/hero-v3.png';   // splash hero; switch to hero-v1.png for the duotone cut
 const fmtTime = (ms) => {
   const s = Math.max(0, Math.floor(ms / 1000));
   return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
@@ -120,12 +121,9 @@ function buildSplash() {
     ]),
     el('div', { class: 'splash__hero' }, [
       el('div', { class: 'wash' }),
-      el('div', { class: 'hero-ph' }, [
-        el('div', { class: 'hero-ph__shadow' }),
-        el('div', { class: 'hero-ph__frame' }, [
-          el('span', { class: 'mono', style: 'font-weight:700;font-size:14px;letter-spacing:0.2em;text-transform:uppercase;color:var(--rz-yellow)' }, 'Hero image'),
-          el('span', { style: 'font-size:14px;color:var(--rz-paper-70)' }, 'drop a photo here later'),
-        ]),
+      el('div', { class: 'hero-card' }, [
+        el('div', { class: 'hero-card__shadow' }),
+        el('img', { class: 'hero-card__img', src: HERO_SRC, alt: 'David and Debbie' }),
       ]),
     ]),
   ]);

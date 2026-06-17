@@ -22,6 +22,7 @@
     "mac": {
       "target": "dir",
       "category": "public.app-category.productivity",
+      "icon": "build/icon.icns",
       "identity": null,
       "extendInfo": {
         "NSMicrophoneUsageDescription": "DebbieDavidApp listens to the two clip-on microphones to translate the conversation in real time.",

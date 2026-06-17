@@ -1,3 +1,7 @@
 node_modules/
 package-lock.json
 dist/
+
+build/icon.iconset/
+build/icon-raw.png
+renderer/assets/hero.png

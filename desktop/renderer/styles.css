@@ -81,6 +81,8 @@ button, a, input, select, [role=button] { -webkit-app-region: no-drag; }
   padding:7px 13px; border-radius:999px; white-space:nowrap; cursor:pointer; background:transparent; }
 .step-pill--active { color:var(--rz-ink); background:var(--rz-yellow); border-color:transparent; transform:rotate(-1deg); }
 .step-pill--done { color:var(--rz-ink); background:var(--rz-paper); border-color:transparent; }
+.step-pill--home { color:var(--rz-paper); border-color:var(--rz-paper-50); margin-right:6px; }
+.step-pill--home:hover { background:var(--rz-yellow); color:var(--rz-ink); border-color:transparent; }
 
 /* accordion rows */
 .row { background:var(--rz-purple-deep); border:1px solid var(--rz-rule-strong); border-radius:8px; padding:26px 30px 28px; }

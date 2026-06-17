@@ -137,13 +137,16 @@ const STEPS = [
 
 function stepper(active) {
   const ai = STEPS.findIndex((x) => x.key === active);
-  return el('div', { class: 'stepper' }, STEPS.map((st, i) => {
+  const home = el('button', { class: 'step-pill step-pill--home',
+    onclick: () => send('gotoStep', { step: 'splash' }) }, '‹ Home');
+  const pills = STEPS.map((st, i) => {
     let cls = 'step-pill';
     if (i === ai) cls += ' step-pill--active';
     else if (i < ai) cls += ' step-pill--done';
     return el('button', { class: cls, onclick: () => send('gotoStep', { step: st.key }) },
       i < ai ? st.n + ' ✓' : st.n + ' ' + st.label);
-  }));
+  });
+  return el('div', { class: 'stepper' }, [home, ...pills]);
 }
 
 function summaryRow(st, text) {

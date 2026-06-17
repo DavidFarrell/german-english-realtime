@@ -50,10 +50,10 @@ function startBridge() {
 
 function createWindow(port) {
   win = new BrowserWindow({
-    width: 1180,
-    height: 860,
-    minWidth: 960,
-    minHeight: 680,
+    width: 1340,
+    height: 940,
+    minWidth: 1160,
+    minHeight: 820,
     backgroundColor: '#2b1f4f',
     titleBarStyle: 'hiddenInset',          // real macOS traffic lights overlay our purple title bar
     trafficLightPosition: { x: 16, y: 16 },

@@ -76,3 +76,4 @@ demo_media/
 
 .pytest_cache/
 out_loopback_*.wav
+out_twoway_*.wav

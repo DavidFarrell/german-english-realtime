@@ -8,9 +8,15 @@ hardware setting needs your hand before simultaneous two-way will work (see "One
 - ✅ **Translation engine**: both directions translate correctly, live, on your key.
 - ✅ **Real-hardware acoustic path**: German played into the rig was captured by the DJI and
   translated to English (and EN->DE). The whole mic->model->audio path is proven.
-- ⚠️ **Stereo channel isolation is OFF**: the DJI receiver is currently in **Mono** (both channels
-  carry one signal). Two-way at the same time needs **Stereo mode** - a receiver setting only you
-  can flip. Until then, one direction at a time works perfectly.
+- ✅ **Channel isolation FIXED + SIMULTANEOUS two-way PROVEN** (17 Jun): after setting the DJI
+  receiver out of Mono (it now exposes separate channels), `hw_channel_check` passes at 22-27 dB
+  isolation, and `hw_twoway_test` runs both directions AT ONCE with no cross-contamination -
+  German(left) and English(right) spoken together, each translated correctly. The two-way
+  translator works end-to-end on hardware.
+- ⚠️ Note on the desk rig: a live `--run` (which *plays* translated audio into the earcups) will
+  acoustically feed back, because each direction's output earcup holds that direction's input mic.
+  That's a quirk of the mics-in-earcups *test* rig, not real use (two people, separate buds). The
+  `hw_twoway_test` avoids it by saving output to files instead of playing it.
 
 ## What got built
 

@@ -177,6 +177,18 @@ class GuiEngine:
         """True if the runtime can actually play audio (earbuds present)."""
         return self.runtime is not None and getattr(self.runtime, "output_available", True)
 
+    def _output_error_message(self) -> str:
+        """A specific reason the output couldn't open, for the toast."""
+        idx = self.state.output.index
+        dev = next((d for d in self.state.output_devices if d["index"] == idx), None)
+        if dev is not None and dev.get("outCh", 2) < 2:
+            return (f"“{dev['name']}” is in mono call mode. Set the Mac's Sound Input to your "
+                    f"microphone (not the earbuds), then reconnect the earbuds so they go stereo.")
+        err = getattr(self.runtime, "output_error", None)
+        if err:
+            return f"Couldn't open the earbuds for stereo: {err}"
+        return "Connect earbuds to hear the translation."
+
     def _stop_runtime(self) -> None:
         if self.runtime is not None:
             try:
@@ -223,7 +235,7 @@ class GuiEngine:
             if not self._ensure_runtime():
                 return
             if not self._output_ready():
-                self.state.set_error("no_output", "Connect earbuds to hear the translation.")
+                self.state.set_error("no_output", self._output_error_message())
                 return
             self.state.session_running = True
             self.state.session_started_ms = _now_ms()
@@ -341,7 +353,7 @@ class GuiEngine:
             if not self._ensure_runtime():
                 return
             if not self._output_ready():
-                self.state.set_error("no_output", "Connect earbuds to run the channel test.")
+                self.state.set_error("no_output", self._output_error_message())
                 return
             ct = self.state.channel_test
             ct.active = True
@@ -375,7 +387,7 @@ class GuiEngine:
         if not self._ensure_runtime():
             return
         if not self._output_ready():
-            self.state.set_error("no_output", "Connect earbuds to test the ear.")
+            self.state.set_error("no_output", self._output_error_message())
             return
         out = getattr(self.runtime, "output", None)
         if out is None or not hasattr(out, "enqueue_device_samples"):

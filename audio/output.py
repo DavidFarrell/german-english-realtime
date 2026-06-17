@@ -125,6 +125,15 @@ class OutputEngine:
         idx = self._device_index
         if idx is None:
             idx = devices.resolve_device(self.cfg.output_name, "output", min_channels=2)
+        # Use the device's OWN native sample rate (Bose 44.1k, AirPods/speakers 48k, ...) instead
+        # of a hard-coded rate, so the stream actually opens. Rebuild buffers/resamplers to match.
+        dev_rate = int(sd.query_devices(idx)["default_samplerate"]) or self._device_rate
+        if dev_rate != self._device_rate:
+            self._device_rate = dev_rate
+            self._buffers = {ch: ChannelJitterBuffer(dev_rate, contracts.OUTPUT_JITTER_MAX_MS)
+                             for ch in OutputChannel}
+            self._resamplers = {ch: StreamingResampler(contracts.MODEL_OUTPUT_RATE, dev_rate)
+                                for ch in OutputChannel}
         self._stream = sd.OutputStream(
             device=idx, channels=2, samplerate=self._device_rate,
             dtype="int16", callback=self._callback)

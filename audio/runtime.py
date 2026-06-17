@@ -22,6 +22,7 @@ class PortAudioRuntime:
         self.capture = CaptureEngine(self.cfg, device_index=input_index)
         self.output = OutputEngine(self.cfg, device_index=output_index)
         self._started = False
+        self.output_error: str | None = None
 
     @property
     def output_available(self) -> bool:
@@ -30,12 +31,13 @@ class PortAudioRuntime:
     def start(self) -> None:
         if self._started:
             return
-        # Output is optional: if the earbuds are offline we still start capture so the mic check
-        # works. enqueue/enqueue_device_samples no-op until an output device is connected.
+        # Output is optional: if the earbuds are offline/unopenable we still start capture so the
+        # mic check works. The reason output failed is kept in output_error for the UI to surface.
         try:
             self.output.start()
-        except Exception:
-            pass
+            self.output_error = None
+        except Exception as exc:
+            self.output_error = str(exc)
         self.capture.start()
         self._started = True
 

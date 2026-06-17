@@ -105,19 +105,18 @@ function makeWave(id, klass) {
 function buildSplash() {
   return el('div', { class: 'splash' }, [
     el('div', { class: 'splash__left' }, [
-      el('div', { class: 'eyebrow' }, 'Personal interpreter · for two'),
       el('div', { class: 'splash__center' }, [
         el('h1', {}, [
-          'Two people.', el('br'), 'Two languages.', el('br'),
-          el('span', { class: 'hl-yellow', style: 'margin-top:8px' }, 'One table.'),
+          "David's", el('br'),
+          el('span', { class: 'hl-yellow' }, 'Debbie'), el('br'), 'App',
         ]),
         el('div', { class: 'splash__sub' },
-          'Clip on a mic, wear one earbud each. Speak your own language and hear theirs in your ear, near-instantly. No phone passed back and forth.'),
+          'Clip on a mic, wear one earbud each. Speak your own language and hear theirs in your ear.'),
         el('div', { class: 'splash__cta' }, [
-          el('a', { class: 'rz-btn', onclick: () => send('gotoStep', { step: 'inputs' }) }, 'Set up the table →'),
+          el('a', { class: 'rz-btn', onclick: () => send('gotoStep', { step: 'inputs' }) }, 'Configure →'),
         ]),
       ]),
-      el('div', { class: 'splash__foot' }, 'v0.4 · two-way speech translation · DE ↔ EN'),
+      el('div', { class: 'splash__foot' }, 'Powered by Gemini 3.5 Live Transcribe'),
     ]),
     el('div', { class: 'splash__hero' }, [
       el('div', { class: 'wash' }),
@@ -175,7 +174,7 @@ function buildSetup(s, overlay) {
   const ai = STEPS.findIndex((x) => x.key === s.wizardStep);
   const head = el('div', { class: 'setup__head' }, [
     el('div', {}, [el('div', { class: 'eyebrow' }, 'Setup'),
-      el('h2', {}, 'Get the table wired up')]),
+      el('h2', {}, 'Microphone check')]),
     stepper(s.wizardStep),
   ]);
   const rows = el('div', { class: 'row-gap' });
@@ -256,7 +255,7 @@ function inputsRow(s) {
     ]),
     el('div', { class: 'row__foot' }, [
       el('span', { style: 'font-size:14px;color:var(--rz-paper-70)' }, 'Names are optional — leave them Left / Right if you like.'),
-      el('a', { class: 'rz-btn', onclick: () => send('gotoStep', { step: 'outputs' }) }, 'Continue to outputs →'),
+      el('a', { class: 'rz-btn', onclick: () => send('gotoStep', { step: 'outputs' }) }, 'Continue to earbuds →'),
     ]),
   ]);
 }
@@ -300,13 +299,12 @@ function outputsRow(s) {
       el('div', { class: 'row__aside', html: (s.output.deviceName || 'Output') + '<br>Stereo · L / R' }),
     ]),
     el('div', { style: 'font-size:15px;color:var(--rz-paper-85);margin-bottom:22px;max-width:70ch' }, [
-      'Pick the language each ear should ', el('span', { class: 'hl-pink' }, 'hear'),
-      '. That choice is also who this person is — the translation for their side plays only into their bud.',
+      'Pick the language each ear should ', el('span', { class: 'hl-pink' }, 'hear'), '.',
     ]),
     el('div', { class: 'iogrid' }, [earBox(s, 'left'), earBox(s, 'right')]),
     el('div', { class: 'row__foot' }, [
-      el('span', { style: 'font-size:14px;color:var(--rz-paper-70)' }, 'Different language to each bud. Detection of who speaks is automatic.'),
-      el('a', { class: 'rz-btn', onclick: () => send('gotoStep', { step: 'channel' }) }, 'Continue to channel test →'),
+      el('span', {}),
+      el('a', { class: 'rz-btn', onclick: () => send('gotoStep', { step: 'channel' }) }, 'Continue →'),
     ]),
   ]);
 }
@@ -325,7 +323,7 @@ function channelTestCard(s, side) {
         el('span', { class: 'io__tx' }, 'Waiting'),
       ]),
       el('div', { style: 'font-size:15px;color:var(--rz-paper-70);margin-bottom:18px' },
-        `When ready, ${sd.name} says their name and hears it back in their own ${isLeft ? 'left' : 'right'} ear.`),
+        'When ready, say a few words and hear them played back to you.'),
       el('a', { class: 'rz-btn rz-btn--ghost rz-btn--sm', onclick: () => send('startChannelTest', { side }) }, 'Start ›'),
     ]);
   }
@@ -346,7 +344,7 @@ function channelTestCard(s, side) {
       el('span', { class: 'io__tx' }, [el('span', { class: isLeft ? 'dot dot--live' : 'dot dot--live-pink' }), 'Listening']),
     ]),
     el('div', { style: 'font-size:13px;color:var(--rz-paper-70)' }, 'Say into your mic:'),
-    el('div', { class: 'ct__say' }, `“Hi, my name is ${sd.name}.”`),
+    el('div', { class: 'ct__say' }, 'A few words…'),
     makeWave('wave-capture', isLeft ? '' : 'wave--pink'),
     el('div', { class: 'flow' }, [
       el('span', { class: 'box' }, `Mic ${isLeft ? 'L' : 'R'}`), el('span', { class: 'arr' }, '→'),
@@ -368,14 +366,13 @@ function channelRow(s) {
     el('div', { class: 'row__head' }, [
       el('span', { class: 'row__num' }, '03'),
       el('div', { class: 'spacer' }, [el('div', { class: 'eyebrow eyebrow--yellow' }, 'Step 3 of 3 · Active'),
-        el('div', { class: 'row__title' }, 'Are we wired right?')]),
+        el('div', { class: 'row__title' }, 'Testing testing 1 2 3')]),
     ]),
     el('div', { style: 'font-size:15px;line-height:1.5;color:var(--rz-paper-85);margin-bottom:22px;max-width:74ch' },
-      'One at a time, each person speaks into their own mic and hears their own voice back in their own ear, about a third of a second later. Nothing is translated yet — if you hear yourself, that side is correct.'),
+      'One at a time, press start and say a few words. You should hear these words played back to you.'),
     el('div', { class: 'iogrid' }, [channelTestCard(s, 'left'), channelTestCard(s, 'right')]),
     el('div', { class: 'row__foot' }, [
-      el('span', { class: 'mono', style: 'font-size:12px;letter-spacing:0.06em;text-transform:uppercase;color:var(--rz-paper-50)' },
-        'Your own voice, echoed to your own ear — no translation.'),
+      el('span', {}),
       el('a', { class: bothOk ? 'rz-btn' : 'rz-btn rz-btn--ghost', style: bothOk ? '' : 'opacity:0.7',
         onclick: () => { send('startLive'); send('gotoStep', { step: 'live' }); } }, 'Start live translation →'),
     ]),
@@ -470,7 +467,7 @@ function buildLive(s) {
     el('div', { class: 'live__cols' }, [liveCol(s, 'left'), liveCol(s, 'right')]),
     el('div', { class: 'live__foot' }, [
       el('span', {}, 'Automatic language detection · ~0.3s delay'),
-      el('span', {}, 'Powered by Gemini Live'),
+      el('span', {}, 'Powered by Gemini 3.5 Live Transcribe'),
     ]),
   ]);
 }

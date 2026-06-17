@@ -4,11 +4,30 @@
   "description": "Two-person German<->English live speech translator - Electron shell over the Python bridge.",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "dist": "electron-builder --mac dir"
   },
   "author": "Paidia",
   "license": "UNLICENSED",
   "devDependencies": {
-    "electron": "^32.0.0"
+    "electron": "^32.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.paidia.debbiedavidapp",
+    "productName": "DebbieDavidApp",
+    "asar": false,
+    "directories": { "output": "dist" },
+    "files": ["main.js", "preload.js", "renderer/**/*", "package.json"],
+    "mac": {
+      "target": "dir",
+      "category": "public.app-category.productivity",
+      "identity": null,
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "DebbieDavidApp listens to the two clip-on microphones to translate the conversation in real time.",
+        "NSBluetoothAlwaysUsageDescription": "DebbieDavidApp plays the translated audio to your Bluetooth earbuds.",
+        "LSMinimumSystemVersion": "12.0"
+      }
+    }
   }
 }

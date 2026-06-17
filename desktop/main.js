@@ -2,12 +2,18 @@
 // The Python core does ALL the work (audio, Gemini, routing); this process only hosts the window
 // and the child. The renderer talks to the bridge directly over ws://127.0.0.1:<port>.
 'use strict';
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, dialog } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
-const PROJECT_ROOT = path.resolve(__dirname, '..');
+// In dev, the project root is one level up from desktop/. In a packaged .app the bundle lives in
+// /Applications, so we point at the real project (which holds the venv, gui_bridge, and .env) by
+// absolute path - overridable via DD_PROJECT_ROOT. This app is a native launcher over that project.
+const PACKAGED_PROJECT_ROOT = '/Users/david/git/ai-sandbox/projects/German-English-realtime';
+const PROJECT_ROOT = app.isPackaged
+  ? (process.env.DD_PROJECT_ROOT || PACKAGED_PROJECT_ROOT)
+  : path.resolve(__dirname, '..');
 const VENV_PYTHON = path.join(PROJECT_ROOT, '.venv', 'bin', 'python');
 const PYTHON = fs.existsSync(VENV_PYTHON) ? VENV_PYTHON : 'python3';
 
@@ -70,6 +76,11 @@ app.whenReady().then(async () => {
     createWindow(port);
   } catch (err) {
     console.error('Failed to start the translation bridge:', err);
+    dialog.showErrorBox(
+      'DebbieDavidApp could not start',
+      'The translation engine (Python bridge) failed to launch.\n\n' +
+      'Expected the project at:\n' + PROJECT_ROOT + '\n\n' +
+      'Check that its .venv exists and gui_bridge is present.\n\nDetails: ' + (err && err.message));
     app.quit();
   }
 

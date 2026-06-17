@@ -223,11 +223,9 @@ function micBox(s, side) {
       el('div', { class: 'field__label' }, 'Microphone'),
       deviceSelect(s, 'input'),
     ]),
-    makeWave(`wave-${side}`, isLeft ? '' : 'wave--quiet'),
-    el('div', { style: 'height:14px' }),
-    el('a', { class: 'rz-btn rz-btn--ghost rz-btn--sm', id: `testmic-${side}`,
-      onclick: () => send('testMic', { side, on: !state.sides[side].testing }) },
-      s.sides[side].testing ? 'Stop test' : 'Test mic'),
+    makeWave(`wave-${side}`, isLeft ? '' : 'wave--pink'),
+    el('div', { class: 'mono', style: 'font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--rz-paper-50);margin-top:10px' },
+      'Speak - your level shows live'),
   ]);
 }
 

@@ -58,7 +58,7 @@ class BridgeServer:
         e = self.engine
         try:
             if cmd == "gotoStep":
-                e.goto_step(data.get("step", "splash"))
+                await e.goto_step(data.get("step", "splash"))
             elif cmd == "setName":
                 e.set_name(data["side"], data.get("name", ""))
             elif cmd == "setLanguage":
@@ -100,6 +100,7 @@ class BridgeServer:
             await asyncio.sleep(period)
             ticks += 1
             self.engine.state.finalize_stale_utterances()
+            self.engine.state.clear_stale_error()
             # poll hardware ~1 Hz, but not mid-session (don't disturb the running device view)
             if ticks % HOUSEKEEP_HZ == 0 and not self.engine.state.session_running:
                 self.engine.refresh_devices()

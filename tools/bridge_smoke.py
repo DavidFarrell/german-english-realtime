@@ -108,13 +108,9 @@ async def main() -> int:
             st = await _recv_until(ws, lambda s: s["sides"]["left"]["lang"] == "de")
             check(st["sides"]["right"]["lang"] == "en", "setLanguage enforces opposite side")
 
-            # mic test streams a level without translation
-            await ws.send(json.dumps({"cmd": "testMic", "side": "left", "on": True}))
-            await _recv_until(ws, lambda s: s["sides"]["left"]["testing"] is True, timeout=4)
-            check(True, "testMic on -> testing flag")
-            await ws.send(json.dumps({"cmd": "testMic", "side": "left", "on": False}))
-            await _recv_until(ws, lambda s: s["sides"]["left"]["testing"] is False, timeout=4)
-            check(True, "testMic off")
+            # inputs screen auto-monitors both mics (live waveforms, no Test Mic button needed)
+            await asyncio.sleep(0.3)
+            check(len(engine._input_monitors) == 2, "inputs screen starts live mic monitors")
 
             # channel test: own mic -> SAME physical side's ear (independent of crossed live route)
             await ws.send(json.dumps({"cmd": "gotoStep", "step": "channel"}))

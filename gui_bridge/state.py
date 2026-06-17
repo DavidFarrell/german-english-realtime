@@ -149,6 +149,7 @@ class ViewState:
         self.session_running = False
         self.session_started_ms = 0
         self.utterances: deque[Utterance] = deque(maxlen=UTTERANCE_CAP)
+        self.error_ms = 0
         self._next_id = 1
         # one live utterance per side - the two speakers interleave, so they must NOT finalise
         # each other (a single global "last utterance" cursor would).
@@ -191,6 +192,18 @@ class ViewState:
     def reset_transcript(self) -> None:
         self.utterances.clear()
         self._live = {"left": None, "right": None}
+
+    # -- transient errors (a toast that clears itself; never a permanent banner) --
+    def set_error(self, code: str, message: str) -> None:
+        self.error = {"code": code, "message": message}
+        self.error_ms = _now_ms()
+
+    def clear_error(self) -> None:
+        self.error = None
+
+    def clear_stale_error(self, ttl_ms: int = 4000) -> None:
+        if self.error is not None and (_now_ms() - self.error_ms) > ttl_ms:
+            self.error = None
 
     def elapsed_ms(self) -> int:
         return (_now_ms() - self.session_started_ms) if self.session_running else 0

@@ -74,6 +74,7 @@ class GuiEngine:
         self.runtime = None
         self._session_tasks: list[asyncio.Task] = []
         self._mic_tests: dict[str, asyncio.Task] = {}
+        self._input_monitors: dict[str, asyncio.Task] = {}
         self._channel_test_task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
         self.refresh_devices()
@@ -131,6 +132,7 @@ class GuiEngine:
             await self.stop_live()
             await self._cancel_mic_tests()
             await self._cancel_channel_test()
+            await self._cancel_input_monitor()
             self._stop_runtime()
         if kind == "input":
             self._input_name, self._input_index = match["name"], index
@@ -139,6 +141,8 @@ class GuiEngine:
         self.refresh_devices()
         if was_live:
             await self.start_live()
+        elif self.state.wizard_step == "inputs":
+            await self.start_input_monitor()   # keep the mic waveforms live after a mic swap
 
     # -- runtime lifecycle -------------------------------------------------------------------
     def _make_runtime(self):
@@ -151,22 +155,27 @@ class GuiEngine:
     def _ensure_runtime(self) -> bool:
         if self.runtime is not None:
             return True
-        # In fake/test mode (injected runtime factory) skip the real hardware-presence gate.
+        # Only the MICROPHONE is required to start the runtime - output (earbuds) is optional, so
+        # the mic check works before the earbuds are connected (capture-only). Output-needing
+        # actions check _output_ready() separately.
         if self._runtime_factory is None:
             self.refresh_devices()
-            if not self.state.input.found or not self.state.output.found:
-                self.state.error = {"code": "device_missing",
-                                    "message": "Microphone or earbuds not found."}
+            if not self.state.input.found:
+                self.state.set_error("mic_missing", "Microphone not found.")
                 return False
         try:
             self.runtime = self._make_runtime()
             self.runtime.start()
-            self.state.error = None
+            self.state.clear_error()
             return True
         except Exception as exc:  # device opened by something else, HFP collapse, etc.
-            self.state.error = {"code": "runtime_error", "message": str(exc)}
+            self.state.set_error("runtime_error", str(exc))
             self.runtime = None
             return False
+
+    def _output_ready(self) -> bool:
+        """True if the runtime can actually play audio (earbuds present)."""
+        return self.runtime is not None and getattr(self.runtime, "output_available", True)
 
     def _stop_runtime(self) -> None:
         if self.runtime is not None:
@@ -200,7 +209,7 @@ class GuiEngine:
                     self.state.add_fragment(source_side, "dst", ev.text,
                                             SRC_LANG[direction], DST_LANG[direction])
                 elif ev.kind == "error":
-                    self.state.error = {"code": "session_error", "message": ev.detail or "error"}
+                    self.state.set_error("session_error", ev.detail or "error")
         except asyncio.CancelledError:
             raise
 
@@ -210,7 +219,11 @@ class GuiEngine:
                 return
             await self._cancel_mic_tests()
             await self._cancel_channel_test()
+            await self._cancel_input_monitor()
             if not self._ensure_runtime():
+                return
+            if not self._output_ready():
+                self.state.set_error("no_output", "Connect earbuds to hear the translation.")
                 return
             self.state.session_running = True
             self.state.session_started_ms = _now_ms()
@@ -242,7 +255,7 @@ class GuiEngine:
                 self.state.sides[side].testing = False
                 return
             if self.state.session_running:
-                self.state.error = {"code": "busy", "message": "Stop live before testing a mic."}
+                self.state.set_error("busy", "Stop live before testing a mic.")
                 return
             if side in self._mic_tests:
                 return
@@ -251,6 +264,30 @@ class GuiEngine:
             self.state.sides[side].testing = True
             self._mic_tests[side] = asyncio.create_task(
                 self._mic_test_loop(side), name=f"mictest-{side}")
+
+    # -- input monitor (live mic waveforms on the inputs screen; no earbuds required) ----------
+    async def _monitor_loop(self, side: str) -> None:
+        raw = self.runtime.input_source(side)
+        try:
+            async for chunk in raw:
+                self.state.sides[side].push_input(self._apply_gain(chunk.pcm_s16le))
+        except asyncio.CancelledError:
+            raise
+
+    async def start_input_monitor(self) -> None:
+        async with self._lock:
+            if self.state.session_running or self._input_monitors:
+                return
+            if not self._ensure_runtime():
+                return
+            for side in ("left", "right"):
+                self._input_monitors[side] = asyncio.create_task(
+                    self._monitor_loop(side), name=f"monitor-{side}")
+
+    async def _cancel_input_monitor(self) -> None:
+        tasks = list(self._input_monitors.values())
+        self._input_monitors.clear()
+        await self._cancel_tasks(tasks)
 
     # -- channel test: own mic -> own ear, ~0.3 s delay --------------------------------------
     def _ear_for_side(self, side: str) -> OutputChannel:
@@ -296,12 +333,15 @@ class GuiEngine:
     async def start_channel_test(self, side: str) -> None:
         async with self._lock:
             if self.state.session_running:
-                self.state.error = {"code": "busy",
-                                    "message": "Stop live before the channel test."}
+                self.state.set_error("busy", "Stop live before the channel test.")
                 return
             await self._cancel_channel_test()
             await self._cancel_mic_tests()
+            await self._cancel_input_monitor()
             if not self._ensure_runtime():
+                return
+            if not self._output_ready():
+                self.state.set_error("no_output", "Connect earbuds to run the channel test.")
                 return
             ct = self.state.channel_test
             ct.active = True
@@ -333,6 +373,9 @@ class GuiEngine:
     def test_ear(self, side: str) -> None:
         """Play a short 440 Hz tone into one earbud only (the outputs-row 'Test ear' button)."""
         if not self._ensure_runtime():
+            return
+        if not self._output_ready():
+            self.state.set_error("no_output", "Connect earbuds to test the ear.")
             return
         out = getattr(self.runtime, "output", None)
         if out is None or not hasattr(out, "enqueue_device_samples"):
@@ -408,9 +451,16 @@ class GuiEngine:
             self._rebuild_routing_from_langs()
         await self._restart_live_if_running(_mut)
 
-    def goto_step(self, step: str) -> None:
-        if step in ("splash", "inputs", "outputs", "channel", "live"):
-            self.state.wizard_step = step
+    async def goto_step(self, step: str) -> None:
+        if step not in ("splash", "inputs", "outputs", "channel", "live"):
+            return
+        self.state.clear_error()        # navigating dismisses any stale toast
+        self.state.wizard_step = step
+        # Live mic waveforms only while on the inputs screen; free the channels everywhere else.
+        if step == "inputs":
+            await self.start_input_monitor()
+        else:
+            await self._cancel_input_monitor()
 
     def rescan(self) -> None:
         self.refresh_devices()
@@ -441,4 +491,5 @@ class GuiEngine:
         await self.stop_live()
         await self._cancel_mic_tests()
         await self._cancel_channel_test()
+        await self._cancel_input_monitor()
         self._stop_runtime()

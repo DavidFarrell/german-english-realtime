@@ -86,6 +86,7 @@ class OutputEngine:
         }
         self._stream: sd.OutputStream | None = None
         self._running = False
+        self.available = False     # True once an output stream is actually open
 
     def enqueue(self, channel: OutputChannel, audio: OutputAudioChunk) -> bool:
         pcm = np.frombuffer(audio.pcm_s16le, dtype=np.int16)
@@ -116,6 +117,9 @@ class OutputEngine:
         buf[:, 1] = right
 
     def start(self) -> None:
+        """Open the output stream. If the device is absent (e.g. earbuds offline) this raises
+        DeviceError; PortAudioRuntime catches that and runs capture-only, leaving `available`
+        False so enqueue/enqueue_device_samples become no-ops until an output is connected."""
         if self._running:
             return
         idx = self._device_index
@@ -126,9 +130,11 @@ class OutputEngine:
             dtype="int16", callback=self._callback)
         self._stream.start()
         self._running = True
+        self.available = True
 
     def stop(self) -> None:
         self._running = False
+        self.available = False
         if self._stream is not None:
             self._stream.stop()
             self._stream.close()

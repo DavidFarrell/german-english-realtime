@@ -23,10 +23,19 @@ class PortAudioRuntime:
         self.output = OutputEngine(self.cfg, device_index=output_index)
         self._started = False
 
+    @property
+    def output_available(self) -> bool:
+        return self.output.available
+
     def start(self) -> None:
         if self._started:
             return
-        self.output.start()
+        # Output is optional: if the earbuds are offline we still start capture so the mic check
+        # works. enqueue/enqueue_device_samples no-op until an output device is connected.
+        try:
+            self.output.start()
+        except Exception:
+            pass
         self.capture.start()
         self._started = True
 

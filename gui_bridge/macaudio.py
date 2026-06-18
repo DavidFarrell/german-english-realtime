@@ -360,6 +360,19 @@ def default_input_uid() -> str | None:
     return _device_uid(obj) if obj else None
 
 
+def input_uid_for_name(name_substr: str, infos: list[DeviceInfo] | None = None) -> str | None:
+    """UID of the (highest-input-channel) device whose name contains `name_substr` - e.g. the DJI."""
+    if not _IS_MAC:
+        return None
+    if infos is None:
+        infos = _enumerate()
+    needle = name_substr.lower()
+    cands = [d for d in infos if needle in d.name.lower() and d.in_ch > 0]
+    if not cands:
+        return None
+    return max(cands, key=lambda d: d.in_ch).uid
+
+
 def set_default_uid(kind: str, uid: str, infos: list[DeviceInfo] | None = None) -> bool:
     """Set the system default input/output to the device with this UID (scope-correct). True on ok."""
     if not _IS_MAC or not uid:
@@ -506,4 +519,58 @@ def force_earbuds_stereo(output_substr: str, input_substr: str,
         set_default("output", output_substr)
         steps.append(f"output->{output_substr}")
     chans = output_channels(output_substr)
+    return {"ok": chans >= 2, "channels": chans, "steps": steps}
+
+
+# -- UID-aware recipe pieces (Slice 2: the guardian runs park first, reconnect only on tap) --------
+
+def park_recipe(output_uid: str, dji_input_uid: str | None,
+                park_output_substr: str = "MacBook Pro Speakers") -> dict:
+    """Park BOTH default routes off the earbuds (output -> built-in speakers, input -> the DJI by
+    UID) so the SCO link drops and the buds renegotiate A2DP, then hand output back. NO reconnect.
+    The disruptive ~4s laptop-speaker blip; user-tapped only (the guardian gates it). {ok,channels}."""
+    steps: list[str] = []
+    if not _IS_MAC:
+        return {"ok": False, "channels": 0, "steps": ["not macOS"]}
+    if dji_input_uid:
+        set_default_uid("input", dji_input_uid)
+    set_default("output", park_output_substr)
+    steps.append(f"parked output->{park_output_substr}, input->{dji_input_uid or '(unknown)'}")
+    time.sleep(4.0)
+    chans = output_channels_for_uid(output_uid)
+    if chans >= 2:
+        set_default_uid("output", output_uid)
+        steps.append(f"output->{output_uid}")
+    chans = output_channels_for_uid(output_uid)
+    return {"ok": chans >= 2, "channels": chans, "steps": steps}
+
+
+def reconnect_recipe(output_uid: str, output_substr: str, dji_input_uid: str | None) -> dict:
+    """blueutil disconnect/reconnect (disruptive; can drop other apps' audio). User-tapped only -
+    the guardian runs this only if park didn't take. Holds the default input on the DJI through the
+    reconnect window so nothing re-grabs the earbud mic, then hands output back. {ok,channels}."""
+    steps: list[str] = []
+    if not _IS_MAC:
+        return {"ok": False, "channels": 0, "steps": ["not macOS"]}
+    addr = _bt_address(output_substr)
+    blueutil = _find_blueutil()
+    if not (addr and blueutil):
+        return {"ok": output_channels_for_uid(output_uid) >= 2, "channels": 0,
+                "steps": ["blueutil/address unavailable"]}
+    try:
+        subprocess.run([blueutil, "--disconnect", addr], timeout=10)
+        time.sleep(3.0)
+        subprocess.run([blueutil, "--connect", addr], timeout=10)
+        steps.append("bluetooth reconnect")
+        for _ in range(8):  # hold default input on the DJI through the reconnect window
+            if dji_input_uid:
+                set_default_uid("input", dji_input_uid)
+            time.sleep(0.6)
+    except Exception as exc:
+        steps.append(f"blueutil failed: {exc}")
+    chans = output_channels_for_uid(output_uid)
+    if chans >= 2:
+        set_default_uid("output", output_uid)
+        steps.append(f"output->{output_uid}")
+    chans = output_channels_for_uid(output_uid)
     return {"ok": chans >= 2, "channels": chans, "steps": steps}

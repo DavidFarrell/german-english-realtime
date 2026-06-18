@@ -1,8 +1,11 @@
 # Plan: seamless auto-fix for BT-earbud HFP-mono collapse
 
-Status: **design, signed off** (Claude + GPT-5 xhigh, 2-round convergence, 18 Jun 2026). Implement
-later. This supersedes the manual-Fix-button approach shipped 18 Jun (which becomes one entry point
-into the guardian below).
+Status: **implemented (slices 1-2); listeners deferred** (built 18 Jun 2026, Claude Opus 4.8 + GPT-5
+xhigh, 4 checkpoints). Slice 1 = UID identity/classifier/holder detection; Slice 2 = the AudioGuardian
+(prevention-only automatic layer + user-tapped park/reconnect + persistent surface + toggle). Slice 3
+(CoreAudio property listeners) is the deferred fast-follow - see `notes/TODO_SLICE3_LISTENERS.md`; v1
+uses 5 Hz armed polling + transition reconciles. Original design signed off 18 Jun (2-round); this doc
+supersedes the manual-Fix-button approach shipped 18 Jun (which is now one entry point into the guardian).
 
 ## Problem (recap)
 

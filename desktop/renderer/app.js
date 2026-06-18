@@ -70,7 +70,8 @@ function viewSignature(s, overlay) {
   const devSig = `${s.input.found ? 1 : 0}${s.input.deviceIndex}.${s.output.found ? 1 : 0}${s.output.deviceIndex}`;
   const langSig = `${s.sides.left.lang}${s.sides.right.lang}`;
   const listSig = `${(s.inputDevices || []).length}.${(s.outputDevices || []).length}`;
-  return `${s.wizardStep}|${overlay}|${ctSig}|${devSig}|${langSig}|${listSig}`;
+  const guardSig = (s.guardian && s.guardian.enabled === false) ? '0' : '1';
+  return `${s.wizardStep}|${overlay}|${ctSig}|${devSig}|${langSig}|${listSig}|${guardSig}`;
 }
 
 function applyState() {
@@ -303,10 +304,29 @@ function outputsRow(s) {
       'Pick the language each ear should ', el('span', { class: 'hl-pink' }, 'hear'), '.',
     ]),
     el('div', { class: 'iogrid' }, [earBox(s, 'left'), earBox(s, 'right')]),
+    protectToggle(s),
     el('div', { class: 'row__foot' }, [
       el('span', {}),
       el('a', { class: 'rz-btn', onclick: () => send('gotoStep', { step: 'channel' }) }, 'Continue →'),
     ]),
+  ]);
+}
+
+// The default-ON "keep earbuds in stereo while in use" guard toggle. When on, the bridge silently
+// re-points the system default mic back to the DJI so other apps can't collapse the buds to mono.
+function protectToggle(s) {
+  const g = s.guardian || { enabled: true };
+  const on = g.enabled !== false;
+  return el('div', { class: 'protect' }, [
+    el('div', { class: 'protect__text' }, [
+      el('div', { class: 'protect__title' }, 'Keep earbuds in stereo while in use'),
+      el('div', { class: 'protect__sub' },
+        'Stops other apps switching the earbuds to mono call mode. Recommended.'),
+    ]),
+    el('button', {
+      class: 'switch' + (on ? ' switch--on' : ''), role: 'switch', 'aria-checked': on ? 'true' : 'false',
+      onclick: () => send('setGuardEnabled', { enabled: !on }),
+    }, el('span', { class: 'switch__knob' })),
   ]);
 }
 
@@ -553,24 +573,35 @@ function utteranceCard(u, side, t0) {
   ]);
 }
 
-// ---- error toast ----------------------------------------------------------------------------
+// ---- guardian surface + error toast ---------------------------------------------------------
+// The guardian's status is the primary earbud-health surface (idle/preventing/fixing/needs_recovery/
+// blocked). needs_recovery and blocked are PERSISTENT (the bridge sets persistent:true) so a
+// mid-session collapse stays visible with a Fix/Reconnect button until David acts - not a toast that
+// vanishes. Plain `error` toasts (non-guardian) still render the old way.
 let toastEl = null;
 function renderToast(s) {
-  const fixing = s.fixingOutput;
+  const g = s.guardian;
   const err = s.error;
-  if (!fixing && !(err && err.message)) {
-    if (toastEl) toastEl.style.display = 'none';
+  // Guardian surface wins whenever it has something to say (preventing/fixing/needs/blocked).
+  const gActive = g && g.phase && g.phase !== 'idle';
+  if (gActive) {
+    showToast(g.message, g.actionable ? g.action : null, g.persistent);
     return;
   }
+  if (s.fixingOutput) { showToast('Fixing the earbuds — a few seconds…', null, true); return; }
+  if (err && err.message) { showToast(err.message, err.fixable ? 'fix' : null, !!err.fixable); return; }
+  if (toastEl) toastEl.style.display = 'none';
+}
+
+function showToast(message, action, persistent) {
   if (!toastEl) { toastEl = el('div', { class: 'toast' }); document.body.appendChild(toastEl); }
+  toastEl.className = 'toast' + (persistent ? ' toast--persistent' : '');
   toastEl.innerHTML = '';
-  if (fixing) {
-    toastEl.appendChild(el('span', { class: 'toast__msg' }, 'Fixing the earbuds — a few seconds…'));
-  } else {
-    toastEl.appendChild(el('span', { class: 'toast__msg' }, err.message));
-    if (err.fixable) {
-      toastEl.appendChild(el('button', { class: 'toast__fix', onclick: () => send('fixEarbuds') }, 'Fix'));
-    }
+  toastEl.appendChild(el('span', { class: 'toast__msg' }, message || ''));
+  if (action === 'fix') {
+    toastEl.appendChild(el('button', { class: 'toast__fix', onclick: () => send('fixEarbuds') }, 'Fix'));
+  } else if (action === 'reconnect') {
+    toastEl.appendChild(el('button', { class: 'toast__fix', onclick: () => send('fixEarbuds') }, 'Reconnect'));
   }
   toastEl.style.display = 'flex';
 }

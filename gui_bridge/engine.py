@@ -23,8 +23,12 @@ import contracts
 from contracts import Direction, InputAudioChunk, LiveSessionConfig, OutputChannel
 from audio import devices
 
-from . import macaudio
+from . import macaudio, settings
+from .guardian import AudioGuardian, DefaultAudioOps, Event as GuardEvent, GuardianStatus
 from .state import ViewState
+
+# Wizard steps that mean "the user is actively setting up the earbuds" -> the guard takes its lease.
+_ARMED_STEPS = ("outputs", "channel")
 
 # Process names that hold a mic but aren't worth naming to the user (system plumbing / ourselves).
 _HOLDER_LABELS: dict[str, str | None] = {
@@ -99,6 +103,11 @@ class GuiEngine:
 
         self.runtime = None
         self._earbud_group = None   # cached macaudio.EarbudGroup (A2DP + HFP UIDs), Slice 1
+        # AudioGuardian (Slice 2): created lazily once an event loop is running (start_guardian()).
+        self._guard_enabled = settings.get_guard_enabled(default=True)
+        self._guard_status = GuardianStatus(enabled=self._guard_enabled)
+        self.state.guardian = self._guard_status.snapshot()
+        self.guardian: AudioGuardian | None = None
         self._session_tasks: list[asyncio.Task] = []
         self._mic_tests: dict[str, asyncio.Task] = {}
         self._input_monitors: dict[str, asyncio.Task] = {}
@@ -166,6 +175,7 @@ class GuiEngine:
         else:
             self._output_name, self._output_index = match["name"], index
             self._earbud_group = None   # re-resolve the earbud UID identity for the new output
+            self._guard_post(GuardEvent.OUTPUT_SELECTED)  # immediate reconcile on output pick
         self.refresh_devices()
         if was_live:
             await self.start_live()
@@ -231,6 +241,51 @@ class GuiEngine:
             self._earbud_group = group
         return self._earbud_group
 
+    # -- AudioGuardian lifecycle + events (Slice 2) ------------------------------------------
+    def start_guardian(self) -> None:
+        """Create + start the guardian once an event loop is running (called by the server). The
+        guard is the SOLE mutator of CoreAudio defaults; the engine only posts it events."""
+        if self.guardian is not None or not macaudio.is_supported():
+            return
+        ops = DefaultAudioOps(
+            resolve_group=lambda: self.resolve_earbud_group(),
+            output_substr=lambda: self._output_name, dji_input_substr=lambda: self._input_name)
+        self.guardian = AudioGuardian(
+            ops, self._guard_status, on_change=self._on_guard_change,
+            before_recovery=self._free_audio_for_recovery,
+            after_recovery=self._after_recovery,
+            enabled=self._guard_enabled)
+        self.guardian.run()
+        # Reflect the initial lease implied by the current wizard step / toggle.
+        self._sync_guard_lease()
+
+    def _on_guard_change(self) -> None:
+        """The guardian mutated its status; mirror it into ViewState for the renderer."""
+        self.state.guardian = self._guard_status.snapshot()
+        # keep the legacy fixing_output flag in sync (renderer fallback / older clients)
+        self.state.fixing_output = self._guard_status.phase == "fixing"
+
+    def _guard_post(self, event: GuardEvent, payload: object = None) -> None:
+        if self.guardian is not None:
+            self.guardian.post(event, payload)
+
+    def _sync_guard_lease(self) -> None:
+        """Post ARM/DISARM from the wizard step. armed = the user is on an earbud-setup step
+        (outputs/channel) with the protect toggle on -> the guard may re-point the default input.
+        On splash/inputs with no session we stay passive (observe only) so we don't fight David
+        picking the earbud mic for something else while the app idles. LIVE is tracked separately."""
+        armed = self._guard_enabled and self.state.wizard_step in _ARMED_STEPS
+        self._guard_post(GuardEvent.ARM if armed else GuardEvent.DISARM)
+
+    async def set_guard_enabled(self, enabled: bool) -> None:
+        """The default-ON 'keep earbuds in stereo while in use' toggle (persisted)."""
+        self._guard_enabled = bool(enabled)
+        settings.set_guard_enabled(self._guard_enabled)
+        self._guard_status.enabled = self._guard_enabled
+        self._guard_post(GuardEvent.SET_ENABLED, self._guard_enabled)
+        self._sync_guard_lease()
+        self.state.guardian = self._guard_status.snapshot()
+
     def _earbud_output_mono_by_uid(self) -> bool | None:
         """True/False if we can read the earbud A2DP node's channels by UID; None if unknown."""
         group = self.resolve_earbud_group()
@@ -288,18 +343,22 @@ class GuiEngine:
             self.state.set_error("no_output", "Connect earbuds to hear the translation.")
 
     async def fix_earbuds(self) -> None:
-        """Un-stick the earbuds from HFP mono back to A2DP stereo (see macaudio.force_earbuds_stereo),
-        then re-resolve devices. Runs the blocking recipe off the event loop so state keeps flowing."""
+        """User tapped Fix/Reconnect. Route the escalation through the guardian (the SOLE launcher of
+        the disruptive recipe) instead of running the recipe directly - no separate racing path.
+
+        The guard, on the owner loop, calls _free_audio_for_recovery() (park needs the streams freed)
+        then runs park (and reconnect if park fails), then _after_recovery() refreshes devices. If
+        there's no guardian (non-macOS / not started), fall back to the legacy direct recipe."""
+        if self.guardian is not None:
+            self.state.clear_error()  # the guardian status surface takes over from the old toast
+            self._guard_post(GuardEvent.MANUAL_FIX)
+            return
+        # Legacy fallback (no guardian): run the proven recipe directly.
         if self.state.fixing_output:
             return
         self.state.fixing_output = True
         self.state.set_error("fixing", "Fixing the earbuds - this takes a few seconds…")
-        # free the audio devices so the recipe can re-route them without us holding a stream
-        await self.stop_live()
-        await self._cancel_mic_tests()
-        await self._cancel_channel_test()
-        await self._cancel_input_monitor()
-        self._stop_runtime()
+        await self._free_audio_for_recovery()
         try:
             result = await asyncio.to_thread(
                 macaudio.force_earbuds_stereo, self._output_name, self._input_name)
@@ -312,6 +371,27 @@ class GuiEngine:
             self.state.clear_error()
         else:
             self._set_output_error()
+
+    async def _free_audio_for_recovery(self) -> None:
+        """Tear down everything holding the audio devices so the park recipe can re-route them.
+        Stops live WITHOUT notifying the guardian (notify_guard=False) so the live lease survives the
+        recipe and the park->reconnect escalation isn't vetoed mid-flight (GPT-5 cp4 #1)."""
+        await self.stop_live(notify_guard=False)
+        await self._cancel_mic_tests()
+        await self._cancel_channel_test()
+        await self._cancel_input_monitor()
+        self._stop_runtime()
+
+    async def _after_recovery(self) -> None:
+        """After the guardian's recipe: re-resolve the earbud UID identity + refresh the device view.
+
+        We deliberately do NOT drop the live lease here: a Fix tapped during live keeps the live
+        context (so a follow-up Fix stays available and prevention keeps running); the streams are
+        torn down but restart on the next start_live. The lease only drops when the user actually
+        leaves live (stop_live with notify_guard=True, or a step change)."""
+        self._earbud_group = None
+        self.resolve_earbud_group(force=True)
+        self.refresh_devices()
 
     def _stop_runtime(self) -> None:
         if self.runtime is not None:
@@ -366,12 +446,19 @@ class GuiEngine:
             self._session_tasks = [
                 asyncio.create_task(self._pump(d), name=f"pump-{d.value}") for d in Direction
             ]
+            self._guard_post(GuardEvent.LIVE_START)   # guard runs LIVE (collapse can happen mid-session)
+            self._guard_post(GuardEvent.SESSION_START)  # immediate reconcile on session start
 
-    async def stop_live(self) -> None:
+    async def stop_live(self, notify_guard: bool = True) -> None:
         async with self._lock:
             await self._cancel_tasks(self._session_tasks)
             self._session_tasks = []
             self.state.session_running = False
+            # GPT-5 cp4 #1: when the guardian's own recovery hook frees the streams we must NOT post
+            # LIVE_STOP - that would drop the live lease MID-recipe and veto the park->reconnect
+            # escalation. The guardian re-syncs the lease itself after recovery (see _after_recovery).
+            if notify_guard:
+                self._guard_post(GuardEvent.LIVE_STOP)
 
     # -- mic test (stream one channel's level/waveform, no translation) ----------------------
     async def _mic_test_loop(self, side: str) -> None:
@@ -592,6 +679,7 @@ class GuiEngine:
             return
         self.state.clear_error()        # navigating dismisses any stale toast
         self.state.wizard_step = step
+        self._sync_guard_lease()        # arm on outputs/channel, passive on splash/inputs
         # Live mic waveforms only while on the inputs screen; free the channels everywhere else.
         if step == "inputs":
             await self.start_input_monitor()
@@ -628,4 +716,6 @@ class GuiEngine:
         await self._cancel_mic_tests()
         await self._cancel_channel_test()
         await self._cancel_input_monitor()
+        if self.guardian is not None:
+            await self.guardian.stop()
         self._stop_runtime()

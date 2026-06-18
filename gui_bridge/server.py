@@ -85,6 +85,8 @@ class BridgeServer:
                 e.rescan()
             elif cmd == "fixEarbuds":
                 await e.fix_earbuds()
+            elif cmd == "setGuardEnabled":
+                await e.set_guard_enabled(bool(data.get("enabled", True)))
             elif cmd == "startLive":
                 await e.start_live()
             elif cmd == "stopLive":
@@ -112,6 +114,7 @@ class BridgeServer:
         async with serve(self.handler, host, port) as server:
             bound = server.sockets[0].getsockname()[1]
             print(f"READY {bound}", flush=True)
+            self.engine.start_guardian()   # the loop is running now; the guard owns audio defaults
             hk = asyncio.create_task(self._housekeeping())
             try:
                 await asyncio.Future()  # run until cancelled

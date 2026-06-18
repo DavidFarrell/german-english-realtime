@@ -150,7 +150,11 @@ class ViewState:
         self.session_started_ms = 0
         self.utterances: deque[Utterance] = deque(maxlen=UTTERANCE_CAP)
         self.error_ms = 0
-        self.fixing_output = False   # True while the earbud un-stick recipe is running
+        self.fixing_output = False   # legacy: kept in sync with guardian phase=="fixing" for compat
+        # The guardian's status surface (Slice 2). Generalises fixing_output: idle/preventing/fixing/
+        # needs_recovery/blocked, with persistent (non-self-clearing) actionable states. The engine
+        # points this at the AudioGuardian's GuardianStatus once the guardian is created.
+        self.guardian: dict | None = None
         self._next_id = 1
         # one live utterance per side - the two speakers interleave, so they must NOT finalise
         # each other (a single global "last utterance" cursor would).
@@ -232,4 +236,5 @@ class ViewState:
             },
             "error": self.error,
             "fixingOutput": self.fixing_output,
+            "guardian": self.guardian,
         }

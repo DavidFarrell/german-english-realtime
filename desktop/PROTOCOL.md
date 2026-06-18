@@ -72,8 +72,29 @@ Notes:
 - `error`: `null` or `{ "code": "device_missing"|"session_error"|"output_mono"|..., "message": "..." }`.
   An `output_mono` error also carries `"fixable": true` and `"holder"` (the process holding the
   earbud mic, or null) - the renderer shows a **Fix** button that sends `fixEarbuds`. Fixable errors
-  do not auto-expire.
-- `fixingOutput`: `true` while the `fixEarbuds` recipe is running (renderer shows a "Fixing…" toast).
+  do not auto-expire. (With the guardian active, the `guardian` field below is the primary surface;
+  `error`/`output_mono` is the fallback when no guardian is running, e.g. non-macOS.)
+- `fixingOutput`: legacy flag, kept in sync with `guardian.phase == "fixing"` for older clients.
+- `guardian`: the AudioGuardian's status surface (the earbud-stereo guard; see notes/AUTOFIX_PLAN.md).
+  `null` when no guardian is running. Shape:
+  ```json
+  {
+    "enabled": true,            // the "keep earbuds in stereo while in use" toggle (default ON)
+    "state": "armed",           // disabled|passive|armed|live|recovering_park|recovering_reconnect|
+                                //   needs_user_recovery|blocked
+    "phase": "idle",            // idle|preventing|fixing|needs_recovery|blocked (what the user sees)
+    "message": "",              // human text for the surface
+    "holder": null,             // process holding the earbud mic, when known
+    "actionable": false,        // show a button
+    "action": "",               // "fix" (park) | "reconnect" | ""
+    "persistent": false         // when true (needs_user_recovery/blocked) the surface must NOT
+                                //   auto-expire - it stays until the user acts / the episode changes
+  }
+  ```
+  AUTOMATIC behaviour is PREVENTION ONLY: while armed/live the guard silently re-points the system
+  default INPUT back to the real mic so other apps can't collapse the buds. The disruptive recovery
+  (park = brief laptop-speaker blip; blueutil reconnect) is EXPLICIT-TAP ONLY - the renderer's
+  Fix/Reconnect button sends `fixEarbuds`, which the bridge routes through the guardian.
 
 ### `event` (discrete one-offs; also reflected in the next `state`)
 ```json
@@ -102,7 +123,8 @@ Every message is `{ "cmd": ..., ... }`. Unknown cmds are ignored (logged).
 | `swapEarbuds` | - | flip which earbud each direction plays into (fix crossed wiring) |
 | `swapPeople` | - | flip which mic is which person (names + source channel) |
 | `rescan` | - | re-enumerate devices, refresh `found` flags |
-| `fixEarbuds` | - | un-stick BT earbuds from HFP mono back to A2DP stereo (parks both default routes off them so the SCO link drops, then hands output back). Sent by the Fix button on a `fixable` toast. |
+| `fixEarbuds` | - | user-tapped earbud recovery: routed through the guardian, which parks both default routes off the buds (brief laptop-speaker blip) and, if that doesn't take, does a Bluetooth reconnect. Sent by the Fix/Reconnect button on the guardian surface (or a legacy `fixable` toast). |
+| `setGuardEnabled` | `enabled` (bool) | toggle the "keep earbuds in stereo while in use" guard (default ON, persisted). Off -> the guardian goes `disabled` and never touches audio defaults. |
 | `startLive` | - | start the two live translate sessions |
 | `stopLive` | - | stop the sessions, keep the runtime |
 | `shutdown` | - | stop everything (Electron sends on quit) |

@@ -98,6 +98,7 @@ class GuiEngine:
         self._output_index: int | None = None
 
         self.runtime = None
+        self._earbud_group = None   # cached macaudio.EarbudGroup (A2DP + HFP UIDs), Slice 1
         self._session_tasks: list[asyncio.Task] = []
         self._mic_tests: dict[str, asyncio.Task] = {}
         self._input_monitors: dict[str, asyncio.Task] = {}
@@ -164,6 +165,7 @@ class GuiEngine:
             self._input_name, self._input_index = match["name"], index
         else:
             self._output_name, self._output_index = match["name"], index
+            self._earbud_group = None   # re-resolve the earbud UID identity for the new output
         self.refresh_devices()
         if was_live:
             await self.start_live()
@@ -203,24 +205,77 @@ class GuiEngine:
         """True if the runtime can actually play audio (earbuds present)."""
         return self.runtime is not None and getattr(self.runtime, "output_available", True)
 
+    # -- earbud UID identity (Slice 1) -------------------------------------------------------
+    def resolve_earbud_group(self, force: bool = False):
+        """Resolve + cache the earbud group (A2DP output UID + HFP input UID) by CoreAudio identity.
+
+        PLAN slice 1: identify the buds by UID, not name substring, so channel/holder checks read the
+        right node. Cached on `self._earbud_group`; re-resolved when forced or when not yet present.
+        Returns the macaudio.EarbudGroup or None (None when not on macOS / buds absent)."""
+        if not macaudio.is_supported():
+            return None
+        if self._earbud_group is not None and not force:
+            return self._earbud_group
+        try:
+            group = macaudio.classify_earbuds(self._output_name)
+        except Exception:
+            group = None
+        # Only overwrite a previously-resolved input_uid with a fresh, equally-confident one: keep a
+        # known HFP sibling if a later scan can only see the output node (buds momentarily mid-collapse).
+        if group is not None:
+            prev = self._earbud_group
+            if (prev is not None and prev.output_uid == group.output_uid
+                    and group.input_uid is None and prev.input_uid is not None):
+                group = group._replace(input_uid=prev.input_uid, input_obj=prev.input_obj,
+                                       via=prev.via)
+            self._earbud_group = group
+        return self._earbud_group
+
+    def _earbud_output_mono_by_uid(self) -> bool | None:
+        """True/False if we can read the earbud A2DP node's channels by UID; None if unknown."""
+        group = self.resolve_earbud_group()
+        if group is None:
+            return None
+        ch = macaudio.output_channels_for_uid(group.output_uid)
+        if ch <= 0:
+            return None  # buds not currently present -> defer to the index-based view
+        return ch < 2
+
     def _output_mono_device(self) -> dict | None:
-        """The selected output device dict if it's stuck in mono call mode (outCh < 2), else None."""
+        """The selected output device dict if it's stuck in mono call mode, else None.
+
+        Prefers the UID-resolved earbud A2DP node (reads the right node even when a same-named HFP
+        sibling exists); falls back to the sounddevice index view when CoreAudio UID is unavailable."""
         idx = self.state.output.index
         dev = next((d for d in self.state.output_devices if d["index"] == idx), None)
+        mono = self._earbud_output_mono_by_uid()
+        if mono is not None:
+            return dev if (mono and dev is not None) else None
         if dev is not None and dev.get("outCh", 2) < 2:
             return dev
         return None
+
+    def _earbud_holder(self) -> str | None:
+        """A friendly name for who holds the EARBUD HFP INPUT specifically (Slice 1, by UID).
+
+        Falls back to the any-mic process list when the HFP UID isn't resolved (no CoreAudio, buds
+        absent, or output-only classification) so the toast still names a likely culprit."""
+        group = self.resolve_earbud_group()
+        try:
+            if group is not None and group.input_uid:
+                names = macaudio.earbud_input_holders(group.input_uid)
+                if names:
+                    return _friendly_holder(names)
+            return _friendly_holder(macaudio.running_input_process_names())
+        except Exception:
+            return None
 
     def _set_output_error(self) -> None:
         """Set the toast for an unavailable output. If the earbuds are in mono call mode, name the
         process holding the mic and mark it fixable so the renderer shows a one-tap Fix button."""
         dev = self._output_mono_device()
         if dev is not None:
-            holder = None
-            try:
-                holder = _friendly_holder(macaudio.running_input_process_names())
-            except Exception:
-                holder = None
+            holder = self._earbud_holder()
             held = f" - held by {holder}" if holder else ""
             msg = (f"“{dev['name']}” is in mono call mode{held}. "
                    f"Tap Fix to switch the earbuds back to stereo.")

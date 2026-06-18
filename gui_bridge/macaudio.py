@@ -20,6 +20,7 @@ import platform
 import shutil
 import subprocess
 import time
+from typing import NamedTuple
 
 # -- ctypes bindings ------------------------------------------------------------------------------
 
@@ -42,8 +43,16 @@ PROP_DEFAULT_OUTPUT = _fourcc("dOut")
 PROP_PROCESS_LIST = _fourcc("prs#")
 PROP_PROC_RUNNING_INPUT = _fourcc("piri")
 PROP_PROC_PID = _fourcc("ppid")
+PROP_PROC_DEVICES = _fourcc("pdv#")     # kAudioProcessPropertyDevices (per-process device set)
 PROP_NAME = _fourcc("lnam")
 PROP_STREAM_CONFIG = _fourcc("slay")
+PROP_DEVICE_UID = _fourcc("uid ")       # kAudioDevicePropertyDeviceUID (CFString)
+PROP_TRANSPORT_TYPE = _fourcc("tran")   # kAudioDevicePropertyTransportType (UInt32)
+PROP_MANUFACTURER = _fourcc("lmak")     # kAudioObjectPropertyManufacturer (CFString)
+PROP_MODEL_UID = _fourcc("muid")        # kAudioDevicePropertyModelUID (CFString)
+PROP_RELATED_DEVICES = _fourcc("akin")  # kAudioDevicePropertyRelatedDevices (array of AudioObjectID)
+TRANSPORT_BLUETOOTH = _fourcc("blue")   # kAudioDeviceTransportTypeBluetooth
+TRANSPORT_BLUETOOTH_LE = _fourcc("blea") # kAudioDeviceTransportTypeBluetoothLE
 
 
 class _Addr(ctypes.Structure):
@@ -102,10 +111,10 @@ def is_supported() -> bool:
 
 # -- low-level property reads ---------------------------------------------------------------------
 
-def _get_array(obj: int, selector: int, ctype) -> list:
+def _get_array(obj: int, selector: int, ctype, scope: int = SCOPE_GLOBAL) -> list:
     """Read a variable-length array property into a list of `ctype`."""
     size = ctypes.c_uint32(0)
-    a = _addr(selector)
+    a = _addr(selector, scope)
     if _ca.AudioObjectGetPropertyDataSize(obj, ctypes.byref(a), 0, None, ctypes.byref(size)) != 0:
         return []
     n = size.value // ctypes.sizeof(ctype)
@@ -128,17 +137,26 @@ def _get_scalar(obj: int, selector: int, ctype):
     return val.value
 
 
-def _device_name(dev: int) -> str:
+def _cfstring_prop(obj: int, selector: int, scope: int = SCOPE_GLOBAL) -> str:
+    """Read a CFString device/object property (name, UID, manufacturer, model) as a Python str."""
     cfstr = ctypes.c_void_p()
     size = ctypes.c_uint32(ctypes.sizeof(ctypes.c_void_p))
-    a = _addr(PROP_NAME)
-    if _ca.AudioObjectGetPropertyData(dev, ctypes.byref(a), 0, None,
+    a = _addr(selector, scope)
+    if _ca.AudioObjectGetPropertyData(obj, ctypes.byref(a), 0, None,
                                       ctypes.byref(size), ctypes.byref(cfstr)) != 0 or not cfstr:
         return ""
     buf = ctypes.create_string_buffer(512)
     ok = _cf.CFStringGetCString(cfstr, buf, 512, 0x08000100)  # kCFStringEncodingUTF8
     _cf.CFRelease(cfstr)
     return buf.value.decode("utf-8", "replace") if ok else ""
+
+
+def _device_name(dev: int) -> str:
+    return _cfstring_prop(dev, PROP_NAME)
+
+
+def _device_uid(dev: int) -> str:
+    return _cfstring_prop(dev, PROP_DEVICE_UID)
 
 
 def _channels(dev: int, scope: int) -> int:
@@ -196,6 +214,37 @@ def _all_devices() -> list[tuple[int, str, int, int]]:
     return out
 
 
+class DeviceInfo(NamedTuple):
+    """A CoreAudio device's stable identity + capabilities (everything the classifier needs)."""
+    obj: int            # AudioObjectID (volatile across reconnects - never persist this)
+    uid: str            # kAudioDevicePropertyDeviceUID (stable across reconnects - persist THIS)
+    name: str
+    manufacturer: str
+    model: str
+    transport: int      # kAudioDevicePropertyTransportType
+    in_ch: int
+    out_ch: int
+    related: tuple[int, ...]  # RelatedDevices obj-ids (siblings of the same physical endpoint)
+
+
+def _enumerate() -> list[DeviceInfo]:
+    """Full device snapshot with UID/transport/manufacturer/model/related, for UID-based logic."""
+    infos: list[DeviceInfo] = []
+    for dev in _get_array(kAudioObjectSystemObject, PROP_DEVICES, ctypes.c_uint32):
+        infos.append(DeviceInfo(
+            obj=dev,
+            uid=_device_uid(dev),
+            name=_device_name(dev),
+            manufacturer=_cfstring_prop(dev, PROP_MANUFACTURER),
+            model=_cfstring_prop(dev, PROP_MODEL_UID),
+            transport=_get_scalar(dev, PROP_TRANSPORT_TYPE, ctypes.c_uint32) or 0,
+            in_ch=_channels(dev, SCOPE_INPUT),
+            out_ch=_channels(dev, SCOPE_OUTPUT),
+            related=tuple(_get_array(dev, PROP_RELATED_DEVICES, ctypes.c_uint32)),
+        ))
+    return infos
+
+
 def output_channels(name_substr: str) -> int:
     """Max output channels of the (highest-channel) device whose name contains `name_substr`."""
     if not _IS_MAC:
@@ -205,6 +254,155 @@ def output_channels(name_substr: str) -> int:
         if name_substr.lower() in name.lower():
             best = max(best, outc)
     return best
+
+
+# -- UID-based identity + the earbud-group classifier ---------------------------------------------
+
+class EarbudGroup(NamedTuple):
+    """The resolved BT-earbud endpoint: its A2DP (stereo out) node and its HFP (mono in) sibling.
+
+    Both UIDs are persisted once confirmed (PLAN: misidentifying the HFP sibling is the single
+    biggest risk). `via` records how the sibling was found, for logging/tests."""
+    output_uid: str         # the A2DP node we play stereo into
+    input_uid: str | None   # the HFP mic node that, if opened, collapses output to mono
+    output_obj: int
+    input_obj: int | None
+    via: str                # "related" | "fallback" | "output-only"
+
+
+def _is_bluetooth(info: DeviceInfo) -> bool:
+    return info.transport in (TRANSPORT_BLUETOOTH, TRANSPORT_BLUETOOTH_LE)
+
+
+def _norm(s: str) -> str:
+    return "".join(ch for ch in s.lower() if ch.isalnum())
+
+
+def classify_earbuds(output_substr: str,
+                     infos: list[DeviceInfo] | None = None) -> EarbudGroup | None:
+    """Resolve the BT-earbud A2DP output node and its HFP input sibling, by UID.
+
+    PLAN (the one hard sign-off requirement): RelatedDevices is PRIMARY but not authoritative;
+    a validated fallback uses Bluetooth transport + matching name/manufacturer/model + complementary
+    in/out capability. UID-stem matching is a last-resort heuristic only. Persist BOTH UIDs.
+
+    Returns None if no matching stereo-output device is present.
+    """
+    if infos is None:
+        infos = _enumerate()
+    needle = output_substr.lower()
+    # The A2DP node MUST be a Bluetooth, stereo-capable (>=2 out ch) device whose name matches.
+    # (GPT-5 cp1 must-fix: accepting out_ch>0 could persist the 1ch HFP output UID as our A2DP node
+    # when the buds are already collapsed or only the HFP profile is visible.)
+    out_cands = [d for d in infos
+                 if needle in d.name.lower() and d.out_ch >= 2 and _is_bluetooth(d)]
+    if not out_cands:
+        return None
+    a2dp = max(out_cands, key=lambda d: d.out_ch)
+    by_obj = {d.obj: d for d in infos}
+
+    def _hfp_rank(d: DeviceInfo) -> tuple:
+        # Best HFP mic sibling: input-capable, Bluetooth, fewest output channels (1ch HFP preferred),
+        # exactly-mono input preferred. RelatedDevices has NO ordering guarantee, so rank explicitly.
+        return (0 if d.in_ch == 1 else 1, d.out_ch, -d.in_ch)
+
+    # 1. PRIMARY: rank the RelatedDevices input siblings deterministically (not "first").
+    rel_inputs = [by_obj[o] for o in a2dp.related
+                  if o in by_obj and by_obj[o].obj != a2dp.obj and by_obj[o].in_ch > 0]
+    if rel_inputs:
+        sib = min(rel_inputs, key=_hfp_rank)
+        return EarbudGroup(a2dp.uid, sib.uid, a2dp.obj, sib.obj, "related")
+
+    # 2. VALIDATED FALLBACK: Bluetooth + identity match + complementary input capability. Strong path
+    # is normalised EXACT name equality; loose containment only if it yields exactly ONE candidate.
+    if _is_bluetooth(a2dp):
+        def _ident_ok(d: DeviceInfo) -> bool:
+            same_maker = bool(a2dp.manufacturer) and d.manufacturer == a2dp.manufacturer
+            same_model = bool(a2dp.model) and d.model == a2dp.model
+            return same_maker or same_model or (not a2dp.manufacturer and not a2dp.model)
+
+        bt_inputs = [d for d in infos
+                     if d.obj != a2dp.obj and d.in_ch > 0 and _is_bluetooth(d) and _ident_ok(d)]
+        exact = [d for d in bt_inputs if _norm(d.name) == _norm(a2dp.name)]
+        if len(exact) >= 1:
+            sib = min(exact, key=_hfp_rank)
+            return EarbudGroup(a2dp.uid, sib.uid, a2dp.obj, sib.obj, "fallback")
+        loose = [d for d in bt_inputs if needle in d.name.lower()]
+        if len(loose) == 1:  # only accept containment when it's unambiguous (no max() guessing)
+            sib = loose[0]
+            return EarbudGroup(a2dp.uid, sib.uid, a2dp.obj, sib.obj, "fallback")
+
+    # 3. No confirmed HFP sibling: persist the output UID only (still better than name substrings).
+    return EarbudGroup(a2dp.uid, None, a2dp.obj, None, "output-only")
+
+
+def _device_by_uid(uid: str, infos: list[DeviceInfo] | None = None) -> DeviceInfo | None:
+    if not uid:
+        return None
+    if infos is None:
+        infos = _enumerate()
+    return next((d for d in infos if d.uid == uid), None)
+
+
+def output_channels_for_uid(uid: str, infos: list[DeviceInfo] | None = None) -> int:
+    """Output channel count of the device with this UID (2 = A2DP stereo, 1 = HFP mono). 0 if gone."""
+    if not _IS_MAC:
+        return 2
+    d = _device_by_uid(uid, infos)
+    return d.out_ch if d is not None else 0
+
+
+def default_input_uid() -> str | None:
+    """UID of the current system default INPUT device (the thing macOS hands new mic readers)."""
+    if not _IS_MAC:
+        return None
+    obj = _get_scalar(kAudioObjectSystemObject, PROP_DEFAULT_INPUT, ctypes.c_uint32)
+    return _device_uid(obj) if obj else None
+
+
+def set_default_uid(kind: str, uid: str, infos: list[DeviceInfo] | None = None) -> bool:
+    """Set the system default input/output to the device with this UID (scope-correct). True on ok."""
+    if not _IS_MAC or not uid:
+        return False
+    d = _device_by_uid(uid, infos)
+    if d is None:
+        return False
+    selector = PROP_DEFAULT_OUTPUT if kind == "output" else PROP_DEFAULT_INPUT
+    a = _addr(selector)
+    val = ctypes.c_uint32(d.obj)
+    return _ca.AudioObjectSetPropertyData(
+        kAudioObjectSystemObject, ctypes.byref(a), 0, None,
+        ctypes.sizeof(val), ctypes.byref(val)) == 0
+
+
+def earbud_input_holders(input_uid: str, own_pid: int | None = None) -> list[str]:
+    """Process names holding the EARBUD HFP INPUT specifically (not 'any mic'), excluding us.
+
+    PLAN: for each process read kAudioProcessPropertyDevices (input scope) and check the earbud HFP
+    input UID is in that set, CROSS-CHECKED with IsRunningInput (Devices = attribution; IsRunningInput
+    filters stale/non-active clients). macOS 14.4+; [] otherwise or if the UID is unknown.
+    """
+    if not _IS_MAC or not input_uid:
+        return []
+    try:
+        infos = _enumerate()
+        target = _device_by_uid(input_uid, infos)
+        if target is None:
+            return []
+        own_pid = os.getpid() if own_pid is None else own_pid
+        holders: list[str] = []
+        for proc in _get_array(kAudioObjectSystemObject, PROP_PROCESS_LIST, ctypes.c_uint32):
+            if not _get_scalar(proc, PROP_PROC_RUNNING_INPUT, ctypes.c_uint32):
+                continue  # IsRunningInput filters stale clients
+            pid = _get_scalar(proc, PROP_PROC_PID, ctypes.c_int32)
+            if not pid or pid == own_pid:
+                continue
+            dev_objs = _get_array(proc, PROP_PROC_DEVICES, ctypes.c_uint32, SCOPE_INPUT)
+            if target.obj in dev_objs:
+                holders.append(_proc_name(pid))
+        return holders
+    except Exception:
+        return []
 
 
 def _find_device_id(name_substr: str, want_output: bool) -> int | None:

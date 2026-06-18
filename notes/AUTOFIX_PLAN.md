@@ -18,8 +18,14 @@ A single asyncio-owned component is the ONLY thing allowed to mutate CoreAudio d
 recovery. **Manual Fix and auto-fix both route through it** - no separate `engine.fix_earbuds()` that
 can race the guard.
 
-**States:** `disabled` -> `passive` -> `armed` -> `live`; transient `recovering_light`,
-`recovering_park`; sticky `blocked` (oscillation, or an external holder we can't evict).
+**States:** `disabled` -> `passive` -> `armed` -> `live`; transient `recovering_park`,
+`recovering_reconnect` (entered ONLY by a user escalate event); `needs_user_recovery` (prevention ran
+but stereo did not return within a brief observe window - persistent actionable UI shown);
+sticky `blocked` (oscillation, or an external holder we can't evict).
+
+**Terminology (GPT-5 r3):** the automatic layer is **prevention**, not recovery. Name it that in code
+and logs. After an auto `correct_default_input`, observe briefly; if stereo doesn't return, go to
+`needs_user_recovery`, whose explicit actions are `park_output` first, `bluetooth_reconnect` second.
 
 **Lease - the guard may mutate global audio ONLY in `armed` or `live`:**
 - `armed` = user is actively setting up/using earbuds in-app (wizard on outputs/channel steps, or the
@@ -111,16 +117,38 @@ guarded by `recovering_*` state so re-entrancy is impossible. Housekeeping shrin
 ## State / protocol
 
 - Slim `guardian` status surfaced (generalises today's `fixingOutput`): idle / "Fixing earbuds..." /
-  "blocked: <holder> is using the earbud mic - quit it, or tap Reconnect".
+  `needs_user_recovery` ("earbuds are mono - tap Fix to switch to stereo") / "blocked: <holder> is
+  using the earbud mic - quit it, or tap Reconnect".
+- **Persistent actionable UI, not a self-clearing toast (GPT-5 r3).** `needs_user_recovery` /
+  `blocked` must NOT auto-expire and must be mirrored in a stable status surface (the live/setup
+  status area, ideally also a menu/status item), so a mid-session collapse stays visible until David
+  acts rather than flashing a toast that vanishes. Today's "fixable errors don't auto-clear" is the
+  seed; extend it to a durable status field.
 - `output_mono` error becomes guardian-emitted; manual `fixEarbuds` cmd enqueues a user-requested
-  escalation (incl. the opt-in reconnect) rather than calling the recipe directly.
+  escalation (park first, then opt-in reconnect) rather than calling the recipe directly.
 - Protect toggle persisted (settings file or `setGuardEnabled` cmd).
 
-## Decisions for David (UX, not engineering)
+## Decisions (LOCKED by David, 18 Jun 2026)
 
-1. Confirm the `armed` definition + protect-toggle default-ON (above).
-2. Is the ~4s laptop-speaker blip acceptable as an automatic action while armed, or should even `park`
-   require a tap (auto-light always; auto-park only if David says yes)?
+1. **`armed` definition: confirmed as above** - guard active on the output/channel/live wizard steps
+   or while a session is running; default-ON "keep earbuds in stereo while in use" toggle.
+2. **Auto-fix does ONLY the silent default-input reroute (prevention).** All disruptive recovery -
+   the `park` recipe (laptop-speaker blip) AND the `blueutil` reconnect - is **explicit-tap only**.
+   The guardian never auto-runs park or reconnect; when prevention can't recover an already-collapsed
+   bud, it surfaces the actionable toast and David taps to escalate.
+
+### Consequence for the design (prevention is automatic; recovery is user-driven)
+
+This matches the observed behaviour: re-pointing the default input mostly **prevents** new collapses;
+it rarely **recovers** a bud already stuck in HFP (we saw default-on-DJI + no holders + still mono).
+So:
+- **Automatic, silent, while armed/live:** `correct_default_input` only. This is the prevention layer
+  and stops the large majority of collapses before they happen.
+- **Explicit-tap only (from the toast):** `recover_park`, then `recover_reconnect` if park doesn't
+  take. The guardian enters `recovering_park`/`recovering_reconnect` ONLY in response to a user
+  `fixEarbuds`/escalate event, never autonomously.
+- The state machine is unchanged but the auto-action set shrinks to `{correct_default_input,
+  surface_blocker}`; `recover_park`/`recover_reconnect` are user-triggered transitions.
 
 ## Phasing (implement later)
 
@@ -134,6 +162,11 @@ guarded by `recovering_*` state so re-entrancy is impossible. Housekeeping shrin
 
 ## Sign-off
 
-GPT-5 (xhigh, round 2): "**YES**, if you amend grouping to RelatedDevices-primary + validated fallback
-+ store both earbud output/input UIDs" - amended above. Remaining acknowledged compromise: v1 uses
-polling, not listeners (fast-follow in Slice 3).
+3-round convergence with GPT-5 (xhigh), 18 Jun 2026:
+- R2 **YES** conditioned on RelatedDevices-primary + validated fallback + store both earbud UIDs (done).
+- R3 (locked UX decisions) **YES, implement as locked**: confirmed no silent recovery primitive exists
+  (default-input reroute prevents but can't recover an already-HFP bud; "toggle output" is just park in
+  softer clothing), the guard model still earns its keep for prevention-only, mid-session collapse
+  surfacing-to-user is acceptable, add `needs_user_recovery` + persistent (non-toast) actionable UI.
+- Acknowledged compromise: v1 uses 5 Hz armed polling + transition reconciles, not CoreAudio
+  listeners (fast-follow in Slice 3).

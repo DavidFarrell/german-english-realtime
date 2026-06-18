@@ -69,7 +69,11 @@ Notes:
   speaker is mid-utterance; the bridge updates its `source`/`translation` in place and flips
   `live` to false when the clause ends.
 - `channelTest.phase`: `"idle"` | `"listening"` | `"playing"` | `"awaiting"` | `"ok"` | `"crossed"`.
-- `error`: `null` or `{ "code": "device_missing"|"session_error"|..., "message": "..." }`.
+- `error`: `null` or `{ "code": "device_missing"|"session_error"|"output_mono"|..., "message": "..." }`.
+  An `output_mono` error also carries `"fixable": true` and `"holder"` (the process holding the
+  earbud mic, or null) - the renderer shows a **Fix** button that sends `fixEarbuds`. Fixable errors
+  do not auto-expire.
+- `fixingOutput`: `true` while the `fixEarbuds` recipe is running (renderer shows a "Fixing…" toast).
 
 ### `event` (discrete one-offs; also reflected in the next `state`)
 ```json
@@ -98,6 +102,7 @@ Every message is `{ "cmd": ..., ... }`. Unknown cmds are ignored (logged).
 | `swapEarbuds` | - | flip which earbud each direction plays into (fix crossed wiring) |
 | `swapPeople` | - | flip which mic is which person (names + source channel) |
 | `rescan` | - | re-enumerate devices, refresh `found` flags |
+| `fixEarbuds` | - | un-stick BT earbuds from HFP mono back to A2DP stereo (parks both default routes off them so the SCO link drops, then hands output back). Sent by the Fix button on a `fixable` toast. |
 | `startLive` | - | start the two live translate sessions |
 | `stopLive` | - | stop the sessions, keep the runtime |
 | `shutdown` | - | stop everything (Electron sends on quit) |

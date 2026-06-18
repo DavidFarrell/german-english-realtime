@@ -23,7 +23,33 @@ import contracts
 from contracts import Direction, InputAudioChunk, LiveSessionConfig, OutputChannel
 from audio import devices
 
+from . import macaudio
 from .state import ViewState
+
+# Process names that hold a mic but aren't worth naming to the user (system plumbing / ourselves).
+_HOLDER_LABELS: dict[str, str | None] = {
+    "Sound": "the Sound settings window",
+    "replayd": "a screen / audio recording",
+    "coreaudiod": None,
+    "VTDecoderXPCService": None,
+}
+
+
+def _friendly_holder(names: list[str]) -> str | None:
+    """Turn raw mic-holding process names into a short human phrase, or None if only noise/us."""
+    out: list[str] = []
+    for n in names:
+        if n in _HOLDER_LABELS:
+            label = _HOLDER_LABELS[n]
+            if label:
+                out.append(label)
+        elif n.lower().startswith("python") or "DebbieDavid" in n or n.startswith("pid "):
+            continue  # ourselves / unnameable
+        else:
+            out.append(n)
+    seen: set[str] = set()
+    uniq = [x for x in out if not (x in seen or seen.add(x))]
+    return ", ".join(uniq) if uniq else None
 
 # Design asked for ~0.5 s; we keep it just under the 400 ms output jitter cap so the channel-test
 # echo can't pile up in the buffer, and to limit feedback cascade on the mics-in-earcups desk rig.
@@ -177,17 +203,60 @@ class GuiEngine:
         """True if the runtime can actually play audio (earbuds present)."""
         return self.runtime is not None and getattr(self.runtime, "output_available", True)
 
-    def _output_error_message(self) -> str:
-        """A specific reason the output couldn't open, for the toast."""
+    def _output_mono_device(self) -> dict | None:
+        """The selected output device dict if it's stuck in mono call mode (outCh < 2), else None."""
         idx = self.state.output.index
         dev = next((d for d in self.state.output_devices if d["index"] == idx), None)
         if dev is not None and dev.get("outCh", 2) < 2:
-            return (f"“{dev['name']}” is in mono call mode. Set the Mac's Sound Input to your "
-                    f"microphone (not the earbuds), then reconnect the earbuds so they go stereo.")
+            return dev
+        return None
+
+    def _set_output_error(self) -> None:
+        """Set the toast for an unavailable output. If the earbuds are in mono call mode, name the
+        process holding the mic and mark it fixable so the renderer shows a one-tap Fix button."""
+        dev = self._output_mono_device()
+        if dev is not None:
+            holder = None
+            try:
+                holder = _friendly_holder(macaudio.running_input_process_names())
+            except Exception:
+                holder = None
+            held = f" - held by {holder}" if holder else ""
+            msg = (f"“{dev['name']}” is in mono call mode{held}. "
+                   f"Tap Fix to switch the earbuds back to stereo.")
+            self.state.set_error("output_mono", msg, fixable=True, holder=holder)
+            return
         err = getattr(self.runtime, "output_error", None)
         if err:
-            return f"Couldn't open the earbuds for stereo: {err}"
-        return "Connect earbuds to hear the translation."
+            self.state.set_error("no_output", f"Couldn't open the earbuds for stereo: {err}")
+        else:
+            self.state.set_error("no_output", "Connect earbuds to hear the translation.")
+
+    async def fix_earbuds(self) -> None:
+        """Un-stick the earbuds from HFP mono back to A2DP stereo (see macaudio.force_earbuds_stereo),
+        then re-resolve devices. Runs the blocking recipe off the event loop so state keeps flowing."""
+        if self.state.fixing_output:
+            return
+        self.state.fixing_output = True
+        self.state.set_error("fixing", "Fixing the earbuds - this takes a few seconds…")
+        # free the audio devices so the recipe can re-route them without us holding a stream
+        await self.stop_live()
+        await self._cancel_mic_tests()
+        await self._cancel_channel_test()
+        await self._cancel_input_monitor()
+        self._stop_runtime()
+        try:
+            result = await asyncio.to_thread(
+                macaudio.force_earbuds_stereo, self._output_name, self._input_name)
+        except Exception as exc:
+            result = {"ok": False, "channels": 0, "steps": [str(exc)]}
+        finally:
+            self.state.fixing_output = False
+        self.refresh_devices()
+        if result.get("ok"):
+            self.state.clear_error()
+        else:
+            self._set_output_error()
 
     def _stop_runtime(self) -> None:
         if self.runtime is not None:
@@ -235,7 +304,7 @@ class GuiEngine:
             if not self._ensure_runtime():
                 return
             if not self._output_ready():
-                self.state.set_error("no_output", self._output_error_message())
+                self._set_output_error()
                 return
             self.state.session_running = True
             self.state.session_started_ms = _now_ms()
@@ -353,7 +422,7 @@ class GuiEngine:
             if not self._ensure_runtime():
                 return
             if not self._output_ready():
-                self.state.set_error("no_output", self._output_error_message())
+                self._set_output_error()
                 return
             ct = self.state.channel_test
             ct.active = True
@@ -387,7 +456,7 @@ class GuiEngine:
         if not self._ensure_runtime():
             return
         if not self._output_ready():
-            self.state.set_error("no_output", self._output_error_message())
+            self._set_output_error()
             return
         out = getattr(self.runtime, "output", None)
         if out is None or not hasattr(out, "enqueue_device_samples"):

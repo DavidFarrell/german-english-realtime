@@ -222,8 +222,15 @@ button, a, input, select, [role=button] { -webkit-app-region: no-drag; }
 
 /* toast / error banner */
 .toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); z-index:50;
+  display:flex; align-items:center; gap:14px; max-width:min(720px, 88vw);
   background:var(--rz-pink); color:var(--rz-ink); font-family:var(--rz-mono); font-weight:700; font-size:12px;
   letter-spacing:0.08em; text-transform:uppercase; padding:10px 16px; border-radius:6px; box-shadow:0 8px 22px -10px rgba(0,0,0,0.6); }
+.toast__msg { flex:1; }
+.toast__fix { flex:none; cursor:pointer; font-family:var(--rz-mono); font-weight:700; font-size:12px;
+  letter-spacing:0.12em; text-transform:uppercase; color:var(--rz-paper); background:var(--rz-ink);
+  border:none; padding:7px 18px; border-radius:999px; }
+.toast__fix:hover { background:#000; }
+.toast__fix:active { transform:translateY(1px); }
 
 .btn-row { display:flex; gap:10px; flex-wrap:wrap; }
 .spacer { flex:1; }

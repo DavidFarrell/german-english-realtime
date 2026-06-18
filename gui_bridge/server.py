@@ -83,6 +83,8 @@ class BridgeServer:
                 await e.swap_people()
             elif cmd == "rescan":
                 e.rescan()
+            elif cmd == "fixEarbuds":
+                await e.fix_earbuds()
             elif cmd == "startLive":
                 await e.start_live()
             elif cmd == "stopLive":

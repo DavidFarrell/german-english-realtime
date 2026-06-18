@@ -150,6 +150,7 @@ class ViewState:
         self.session_started_ms = 0
         self.utterances: deque[Utterance] = deque(maxlen=UTTERANCE_CAP)
         self.error_ms = 0
+        self.fixing_output = False   # True while the earbud un-stick recipe is running
         self._next_id = 1
         # one live utterance per side - the two speakers interleave, so they must NOT finalise
         # each other (a single global "last utterance" cursor would).
@@ -194,14 +195,19 @@ class ViewState:
         self._live = {"left": None, "right": None}
 
     # -- transient errors (a toast that clears itself; never a permanent banner) --
-    def set_error(self, code: str, message: str) -> None:
-        self.error = {"code": code, "message": message}
+    def set_error(self, code: str, message: str, **extra) -> None:
+        # `extra` carries optional fields like fixable/holder for actionable toasts.
+        self.error = {"code": code, "message": message, **extra}
         self.error_ms = _now_ms()
 
     def clear_error(self) -> None:
         self.error = None
 
     def clear_stale_error(self, ttl_ms: int = 4000) -> None:
+        # Fixable errors stay until resolved (the user needs time to hit the Fix button); they're
+        # cleared explicitly on success or replaced by the next action's error.
+        if self.error is not None and self.error.get("fixable"):
+            return
         if self.error is not None and (_now_ms() - self.error_ms) > ttl_ms:
             self.error = None
 
@@ -225,4 +231,5 @@ class ViewState:
                 "utterances": [u.snapshot() for u in self.utterances],
             },
             "error": self.error,
+            "fixingOutput": self.fixing_output,
         }

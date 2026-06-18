@@ -556,13 +556,23 @@ function utteranceCard(u, side, t0) {
 // ---- error toast ----------------------------------------------------------------------------
 let toastEl = null;
 function renderToast(s) {
-  if (s.error && s.error.message) {
-    if (!toastEl) { toastEl = el('div', { class: 'toast' }); document.body.appendChild(toastEl); }
-    toastEl.textContent = s.error.message;
-    toastEl.style.display = 'block';
-  } else if (toastEl) {
-    toastEl.style.display = 'none';
+  const fixing = s.fixingOutput;
+  const err = s.error;
+  if (!fixing && !(err && err.message)) {
+    if (toastEl) toastEl.style.display = 'none';
+    return;
   }
+  if (!toastEl) { toastEl = el('div', { class: 'toast' }); document.body.appendChild(toastEl); }
+  toastEl.innerHTML = '';
+  if (fixing) {
+    toastEl.appendChild(el('span', { class: 'toast__msg' }, 'Fixing the earbuds — a few seconds…'));
+  } else {
+    toastEl.appendChild(el('span', { class: 'toast__msg' }, err.message));
+    if (err.fixable) {
+      toastEl.appendChild(el('button', { class: 'toast__fix', onclick: () => send('fixEarbuds') }, 'Fix'));
+    }
+  }
+  toastEl.style.display = 'flex';
 }
 
 connect();

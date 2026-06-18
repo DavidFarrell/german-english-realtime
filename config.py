@@ -12,16 +12,18 @@ from dataclasses import dataclass
 
 from contracts import Direction, OutputChannel
 
-# Verified on David's Mac 16 Jun 2026 (sounddevice enumeration):
+# Verified on David's Mac 16-18 Jun 2026 (sounddevice enumeration):
 #   "Wireless Mic Rx" = DJI, 2ch @ 48000 (TX1=ch0=LEFT, TX2=ch1=RIGHT)
-#   "Bose QC35 II"    = 2ch @ 44100 A2DP output. NB a *separate* 1ch/16k Bose entry is the HFP
-#                       mic - opening it collapses output to mono. Never open the Bose input.
+#   "David's Eggies"  = BT earbuds, A2DP stereo output (out 2). NB a *separate* 1ch entry is the
+#                       HFP mic - opening it (or making the buds the default INPUT) collapses
+#                       output to mono. Never open the earbud input; keep the DJI as the mic.
+# Matched as a substring (case-insensitive), so "Eggies" avoids the curly-apostrophe in the name.
 DEFAULT_INPUT_NAME = "Wireless Mic Rx"
-DEFAULT_OUTPUT_NAME = "Bose QC35 II"
+DEFAULT_OUTPUT_NAME = "Eggies"
 
 DJI_NATIVE_RATE = 48_000      # confirm at runtime; resample 48k -> 16k for the model
-# Bose A2DP native rate (resample 24k model output -> device rate). Confirmed 44100.
-DEFAULT_OUTPUT_RATE = 44_100
+# Fallback output rate; the real device rate is detected at runtime (output resamples 24k -> device).
+DEFAULT_OUTPUT_RATE = 48_000
 
 # Physical wiring (the DJI stereo split gives hardware channel isolation per speaker).
 #   LEFT mic channel  (ch0 / TX1) = the German speaker  -> translate to EN
